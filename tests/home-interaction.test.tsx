@@ -203,6 +203,37 @@ describe("remove, clear and undo", () => {
     expect(stored()!.map((s) => s.id)).toEqual(["e", "y"]);
   });
 
+  it("reserves the toast's height at the page bottom while it shows, then gives it back", () => {
+    mount([earlier, yesterday]);
+    const html = document.documentElement;
+    expect(html.hasAttribute("data-toast")).toBe(false);
+    press($('[aria-label^="Remove Email"]')!, 0);
+    expect(html.hasAttribute("data-toast")).toBe(true);
+    // happy-dom has no layout, so the measured height falls back to the 52px toast: 52 + 24 + 16.
+    expect(html.style.getPropertyValue("--as-toast-space")).toBe("92px");
+    act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(html.hasAttribute("data-toast")).toBe(false);
+    expect(html.style.getPropertyValue("--as-toast-space")).toBe("");
+  });
+
+  it("Undo of the running session keeps it running when a stopped one shares its start time", () => {
+    mount([{ id: "l", label: "Latest", start: NOW, end: null }, { id: "o", label: "Older", start: NOW, end: NOW }]);
+    press($('[aria-label^="Remove Latest"]')!, 0);
+    press(button("Undo"));
+    expect(stored()!.map((s) => [s.id, s.end])).toEqual([["l", null], ["o", NOW]]);
+  });
+
+  it("does not announce a start that another tab already beat", () => {
+    mount([]);
+    type(labelInput(), "Mine");
+    const start = button("Start");
+    // Another tab starts a session; no storage event has reached this tab, so Start still shows.
+    localStorage.setItem(STORE_KEY, JSON.stringify([{ id: "x", label: "Other tab", start: NOW - 60_000, end: null }]));
+    press(start);
+    expect($('[role="status"]')!.textContent).toBe("Not started: “Other tab” is already running.");
+    expect(stored()!.map((s) => s.id)).toEqual(["x"]);
+  });
+
   it("Undo puts back the session as it is in the store, not as this tab last rendered it", () => {
     mount([{ id: "a", label: "Task A", start: NOW - HOUR, end: null }]);
     // Another tab stops A; no storage event reaches this tab, so it still renders A as running.

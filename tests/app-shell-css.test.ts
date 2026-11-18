@@ -16,3 +16,10 @@ describe("skip link target", () => {
     expect(css).toMatch(/#main \{ scroll-margin-top: 64px; \}/);
   });
 });
+
+describe("Undo toast space", () => {
+  it("reserves the toast's height at the bottom while it shows", () => {
+    expect(css).toMatch(/html\[data-toast\] \{ scroll-padding-bottom: var\(--as-toast-space/);
+    expect(css).toMatch(/html\[data-toast\] body \{ padding-bottom: var\(--as-toast-space/);
+  });
+});

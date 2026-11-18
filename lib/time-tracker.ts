@@ -92,7 +92,20 @@ export function restoreSessions(sessions: Session[], removed: Session[], removed
     .filter((session) => !ids.has(session.id))
     // Stamp this removal's time, replacing an older mark from an earlier remove + Undo of the same session.
     .map((session) => (session.end === null ? { ...session, removedAt } : session));
-  return oneRunning([...sessions, ...back].sort((a, b) => b.start - a.start), now);
+  return oneRunning(newestFirst([...sessions, ...back]), now);
+}
+
+/**
+ * Newest first by start. Equal starts (a coarse Date.now()) are ordered by when they actually began:
+ * only one session runs at a time, so of two with the same start the earlier one ended at that start
+ * and the later one ends later or still runs. Remaining ties keep their list order (original index).
+ */
+function newestFirst(sessions: Session[]): Session[] {
+  const endKey = (session: Session) => session.end ?? Infinity;
+  return sessions
+    .map((session, index) => ({ session, index }))
+    .sort((a, b) => b.session.start - a.session.start || endKey(b.session) - endKey(a.session) || a.index - b.index)
+    .map(({ session }) => session);
 }
 
 /** `sessions` newest first. Only the newest may run; see restoreSessions. Linear in the list length. */

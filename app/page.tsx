@@ -63,6 +63,7 @@ export default function Home() {
   const stopRef = useRef<HTMLButtonElement>(null);
   const startRef = useRef<HTMLButtonElement>(null);
   const undoRef = useRef<HTMLButtonElement>(null);
+  const toastRef = useRef<HTMLDivElement>(null);
   const focusAfterToggle = useRef<"start" | "stop" | null>(null);
   const focusAfterToast = useRef(false);
   // The committed Undo state, for handlers that may come from an older render (memoized rows).
@@ -90,6 +91,20 @@ export default function Home() {
       (labelRef.current ?? stopRef.current)?.focus();
     }
   }, [removed]);
+  // While the toast shows, reserve its height (plus its 24px offset and a gap) at the page bottom,
+  // so the footer links can scroll clear of it and focus scrolling keeps the focused link above it.
+  const toastShown = removed !== null;
+  useEffect(() => {
+    if (!toastShown) return;
+    const root = document.documentElement;
+    const height = toastRef.current?.getBoundingClientRect().height || 52;
+    root.style.setProperty("--as-toast-space", `${Math.ceil(height) + 24 + 16}px`);
+    root.setAttribute("data-toast", "");
+    return () => {
+      root.removeAttribute("data-toast");
+      root.style.removeProperty("--as-toast-space");
+    };
+  }, [toastShown]);
   useEffect(() => {
     if (!removed || toastFocused) return;
     const timer = window.setTimeout(() => setRemoved(null), 6000);
@@ -101,8 +116,11 @@ export default function Home() {
     const name = label.trim() || "Untitled";
     // Start comes from the button or Enter in the field; either way the next useful key is Stop.
     focusAfterToggle.current = "stop";
-    sessionStore.update((current) => startSession(current, label, crypto.randomUUID(), Date.now()));
-    setAnnouncement(`Started “${name}”.`);
+    const id = crypto.randomUUID();
+    sessionStore.update((current) => startSession(current, label, id, Date.now()));
+    // The store re-reads storage, so another tab may already be timing: only claim a start that happened.
+    const running = activeSession(sessionStore.getSnapshot());
+    setAnnouncement(running?.id === id ? `Started “${name}”.` : `Not started: “${running?.label ?? name}” is already running.`);
   }
   function stop() {
     if (!active) return;
@@ -225,6 +243,7 @@ export default function Home() {
       <p className="as-sr" role="status" aria-live="polite">{announcement}</p>
       {removed ? (
         <div
+          ref={toastRef}
           className="as-toast"
           role="group"
           aria-label="Undo"

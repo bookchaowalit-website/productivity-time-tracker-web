@@ -153,6 +153,25 @@ describe("cross-tab undo", () => {
   });
 });
 
+describe("restore with equal start times", () => {
+  it("Undo of the running session keeps it running when an older one shares its start", () => {
+    const older: Session = { id: "o", label: "Older", start: 1_000, end: 1_000 }; // stopped in the same ms
+    const latest: Session = { id: "l", label: "Latest", start: 1_000, end: null };
+    const back = restoreSessions([older], [latest], 1_500, 2_000);
+    expect(back).toEqual([{ ...latest, removedAt: 1_500 }, older]);
+    expect(activeSession(back)?.id).toBe("l");
+  });
+
+  it("finished sessions with the same start come back in their original order", () => {
+    const a: Session = { id: "a", label: "A", start: 1_000, end: 1_000 };
+    const b: Session = { id: "b", label: "B", start: 1_000, end: 1_400 };
+    const c: Session = { id: "c", label: "C", start: 1_000, end: 1_000 };
+    expect(restoreSessions([], [b, a], 2_000, 2_000)).toEqual([b, a]);
+    expect(restoreSessions([a], [b], 2_000, 2_000)).toEqual([b, a]);
+    expect(restoreSessions([a], [c], 2_000, 2_000)).toEqual([a, c]); // full tie: list order is kept
+  });
+});
+
 describe("restore keeps history exactly", () => {
   it("Clear list then Undo gives back the same history, pre-existing overlap included", () => {
     const x: Session = { id: "x", label: "x", start: 100, end: 500 };
