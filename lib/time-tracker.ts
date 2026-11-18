@@ -47,18 +47,19 @@ export function removeSession(sessions: Session[], id: string): Session[] {
 }
 
 /**
- * Puts removed sessions back (Undo), newest first. If a session started meanwhile, a restored running
- * session is stopped at `now` so only one ever runs.
+ * Puts sessions removed at `removedAt` back (Undo), newest first, without double-counting time. A
+ * restored running session keeps running only when nothing was started after it was removed;
+ * otherwise it ends at `removedAt`, so sessions never overlap and only one ever runs.
  */
-export function restoreSessions(sessions: Session[], removed: Session[], now: number): Session[] {
+export function restoreSessions(sessions: Session[], removed: Session[], removedAt: number): Session[] {
   const ids = new Set(sessions.map((session) => session.id));
-  let running = activeSession(sessions) !== null;
+  let busy = activeSession(sessions) !== null || sessions.some((session) => session.start >= removedAt);
   const back = removed
     .filter((session) => !ids.has(session.id))
     .map((session) => {
       if (session.end !== null) return session;
-      if (running) return { ...session, end: Math.max(now, session.start) };
-      running = true;
+      if (busy) return { ...session, end: Math.max(removedAt, session.start) };
+      busy = true;
       return session;
     });
   return [...sessions, ...back].sort((a, b) => b.start - a.start);

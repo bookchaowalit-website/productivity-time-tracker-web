@@ -12,8 +12,8 @@ pairs pass 4.5:1 in both themes; input edges use `--as-field-line` (3:1+).
 
 ## Typography
 
-Inter, loaded as a file with `next/font` (variable `--font-inter` on `<html>`), so every platform
-renders the same face. Durations use tabular numbers. Nothing is smaller than 12px.
+Geist, loaded as a file with `next/font` (variable `--font-geist-sans` on `<html>`), like the other
+App shell apps, so every platform renders the same face. Durations use tabular numbers. Nothing is smaller than 12px.
 
 ## Layout
 

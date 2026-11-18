@@ -94,10 +94,21 @@ describe("restore and lists", () => {
     expect(restoreSessions([done], [running, done], 200_000)).toEqual([running, done]);
   });
 
-  it("stops a restored running session when another is running", () => {
+  it("ends a restored running session at its removal time when another one is running", () => {
     const fresh: Session = { id: "c", label: "New", start: 300_000, end: null };
-    const back = restoreSessions([fresh], [running], 310_000);
-    expect(back).toEqual([fresh, { ...running, end: 310_000 }]);
+    const back = restoreSessions([fresh], [running], 250_000);
+    expect(back).toEqual([fresh, { ...running, end: 250_000 }]);
+  });
+
+  it("ends it at its removal time when a session started and stopped in between (no overlap)", () => {
+    const between: Session = { id: "c", label: "Between", start: 260_000, end: 280_000 };
+    const back = restoreSessions([between], [running], 250_000);
+    expect(back).toEqual([between, { ...running, end: 250_000 }]);
+    expect(activeSession(back)).toBeNull();
+  });
+
+  it("keeps it running when nothing was started after the removal", () => {
+    expect(restoreSessions([done], [running], 250_000)).toEqual([running, done]);
   });
 
   it("Today keeps sessions since local midnight and the running one; no clock means none", () => {

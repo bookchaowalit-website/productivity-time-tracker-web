@@ -32,7 +32,8 @@ export default function Home() {
   const now = useSyncExternalStore(clockStore.subscribe, clockStore.getSnapshot, clockStore.getServerSnapshot);
   const [list, setList] = useState<SessionList>("all");
   const [label, setLabel] = useState("Deep work");
-  const [removed, setRemoved] = useState<{ sessions: Session[]; message: string; viaKeyboard: boolean } | null>(null);
+  // Every removal still inside its Undo window, oldest first. Undo restores all of them.
+  const [removed, setRemoved] = useState<{ batches: { sessions: Session[]; at: number }[]; message: string; viaKeyboard: boolean } | null>(null);
   const [toastFocused, setToastFocused] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const labelRef = useRef<HTMLInputElement>(null);
@@ -40,6 +41,7 @@ export default function Home() {
   const startRef = useRef<HTMLButtonElement>(null);
   const undoRef = useRef<HTMLButtonElement>(null);
   const focusAfterToggle = useRef<"start" | "stop" | null>(null);
+  const focusAfterToast = useRef(false);
 
   const active = activeSession(sessions);
   const visible = listSessions(sessions, list, now);
@@ -52,7 +54,14 @@ export default function Home() {
     if (target === "stop") stopRef.current?.focus();
     if (target === "start") startRef.current?.focus();
   }, [active]);
-  useEffect(() => { if (removed?.viaKeyboard) undoRef.current?.focus(); }, [removed]);
+  useEffect(() => {
+    if (removed?.viaKeyboard) undoRef.current?.focus();
+    // After Undo or Escape, focus the field (Ready) or Stop (Running), whichever this render shows.
+    if (!removed && focusAfterToast.current) {
+      focusAfterToast.current = false;
+      (labelRef.current ?? stopRef.current)?.focus();
+    }
+  }, [removed]);
   useEffect(() => {
     if (!removed || toastFocused) return;
     const timer = window.setTimeout(() => setRemoved(null), 6000);
@@ -62,7 +71,8 @@ export default function Home() {
   function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = label.trim() || "Untitled";
-    if (document.activeElement === startRef.current) focusAfterToggle.current = "stop";
+    // Start comes from the button or Enter in the field; either way the next useful key is Stop.
+    focusAfterToggle.current = "stop";
     sessionStore.update((current) => startSession(current, label, crypto.randomUUID(), Date.now()));
     setAnnouncement(`Started “${name}”.`);
   }
@@ -74,19 +84,28 @@ export default function Home() {
     setAnnouncement(`Stopped “${ended.label}” after ${formatDuration(sessionDuration(ended, ended.end ?? ended.start))}.`);
   }
   function discard(gone: Session[], message: string, viaKeyboard: boolean) {
-    sessionStore.update((current) => gone.reduce((rest, session) => removeSession(rest, session.id), current));
-    setRemoved({ sessions: gone, message, viaKeyboard });
-    setAnnouncement(`${message}. Undo is available for a few seconds.`);
+    let at = 0;
+    sessionStore.update((current) => {
+      at = Date.now();
+      return gone.reduce((rest, session) => removeSession(rest, session.id), current);
+    });
+    // A second removal inside the Undo window joins the first instead of replacing it.
+    const batches = [...(removed?.batches ?? []), { sessions: gone, at }];
+    const count = batches.reduce((sum, batch) => sum + batch.sessions.length, 0);
+    const text = batches.length === 1 ? message : `Removed ${plural(count)}`;
+    setRemoved({ batches, message: text, viaKeyboard });
+    setAnnouncement(`${text}. Undo is available for a few seconds.`);
   }
   function closeToast() {
+    focusAfterToast.current = true;
     setRemoved(null);
     setToastFocused(false);
-    labelRef.current?.focus();
   }
   function undo() {
     if (!removed) return;
-    sessionStore.update((current) => restoreSessions(current, removed.sessions, Date.now()));
-    setAnnouncement(`Restored ${plural(removed.sessions.length)}.`);
+    const { batches } = removed;
+    sessionStore.update((current) => batches.reduce((rest, batch) => restoreSessions(rest, batch.sessions, batch.at), current));
+    setAnnouncement(`Restored ${plural(batches.reduce((sum, batch) => sum + batch.sessions.length, 0))}.`);
     closeToast();
   }
 

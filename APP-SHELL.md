@@ -1,7 +1,7 @@
 # App shell
 
 The shared calm, Apple-like look for list-style apps (services, todos, notes, reminders,
-habits, goals). Started 2026-11-13 with marketing-services-web as the pilot; todo-board was second, reminders third; time-tracker moved on 2026-11-18 (timer card `.as-timer` in place of the composer, Inter font via `--font-inter`). Each app is its own repo, so the
+habits, goals). Started 2026-11-13 with marketing-services-web as the pilot; todo-board was second, reminders third; time-tracker moved on 2026-11-18 (timer card `.as-timer` in place of the composer). Each app is its own repo, so the
 shell is copied in, not installed: take `app/app-shell.css` and `components/app-shell.tsx`.
 
 ## Rules

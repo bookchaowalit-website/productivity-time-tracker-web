@@ -74,8 +74,10 @@ describe("timer", () => {
   it("Enter in the label field starts; keyboard focus follows Start to Stop and back", () => {
     mount([]);
     type(labelInput(), "  ");
+    labelInput().focus();
     submit();
     expect(stored()![0].label).toBe("Untitled");
+    expect(document.activeElement?.textContent).toBe("Stop");
     press(button("Stop"));
 
     const start = button("Start");
@@ -145,14 +147,53 @@ describe("remove, clear and undo", () => {
     expect(document.activeElement).toBe(labelInput());
   });
 
-  it("undoing a removed running session while a new one runs stops the restored one", () => {
+  it("undoing a removed running session after starting another ends it at the removal time", () => {
     mount([{ id: "r", label: "Old run", start: NOW - HOUR, end: null }]);
     press($('[aria-label^="Remove Old run"]')!);
+    act(() => { vi.advanceTimersByTime(1000); });
     press(button("Start"));
     act(() => { vi.advanceTimersByTime(1000); });
     press(button("Undo"));
     const list = stored()!;
-    expect(list.filter((s) => s.end === null).map((s) => s.id)).toHaveLength(1);
-    expect(list.find((s) => s.id === "r")!.end).toBe(NOW + 1000);
+    expect(list.filter((s) => s.end === null)).toHaveLength(1);
+    expect(list.find((s) => s.id === "r")!.end).toBe(NOW);
+  });
+
+  it("does not bring it back running when the session in between was already stopped", () => {
+    mount([{ id: "r", label: "Old run", start: NOW - HOUR, end: null }]);
+    press($('[aria-label^="Remove Old run"]')!);
+    act(() => { vi.advanceTimersByTime(1000); });
+    press(button("Start"));
+    act(() => { vi.advanceTimersByTime(1000); });
+    press(button("Stop"));
+    press(button("Undo"));
+    const list = stored()!;
+    expect(list.filter((s) => s.end === null)).toHaveLength(0);
+    expect(list.find((s) => s.id === "r")!.end).toBe(NOW);
+    expect(clock()).toBe("00:00:00");
+  });
+
+  it("a second removal inside the Undo window joins the first; Undo restores both", () => {
+    mount([earlier, yesterday]);
+    press($('[aria-label^="Remove Email"]')!);
+    act(() => { vi.advanceTimersByTime(3000); });
+    press($('[aria-label="Clear 1 session from All sessions"]')!);
+    expect(stored()).toEqual([]);
+    expect($(".as-toast")!.textContent).toContain("Removed 2 sessions");
+    act(() => { vi.advanceTimersByTime(4000); });
+    expect($(".as-toast")).not.toBeNull();
+    press(button("Undo"));
+    expect(stored()!.map((s) => s.id)).toEqual(["e", "y"]);
+  });
+
+  it("closing the toast while a session runs moves focus to Stop", () => {
+    mount([{ id: "r", label: "Running now", start: NOW - HOUR, end: null }, earlier]);
+    press($('[aria-label^="Remove Email"]')!, 0);
+    act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(document.activeElement?.textContent).toBe("Stop");
+    press($('[aria-label^="Remove Running now"]')!, 0);
+    press(button("Undo"), 0);
+    expect(rows()).toEqual(["Running now"]);
+    expect(document.activeElement?.textContent).toBe("Stop");
   });
 });
