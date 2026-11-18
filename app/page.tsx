@@ -8,7 +8,7 @@ import {
   formatDate,
   formatDuration,
   listSessions,
-  removeSession,
+  removeSessions,
   restoreSessions,
   sessionDuration,
   sessionStore,
@@ -87,7 +87,7 @@ export default function Home() {
     let at = 0;
     sessionStore.update((current) => {
       at = Date.now();
-      return gone.reduce((rest, session) => removeSession(rest, session.id), current);
+      return removeSessions(current, gone);
     });
     // A second removal inside the Undo window joins the first instead of replacing it.
     const batches = [...(removed?.batches ?? []), { sessions: gone, at }];
@@ -104,7 +104,9 @@ export default function Home() {
   function undo() {
     if (!removed) return;
     const { batches } = removed;
-    sessionStore.update((current) => batches.reduce((rest, batch) => restoreSessions(rest, batch.sessions, batch.at), current));
+    // Newest batch first: an older running session must see the sessions started after its removal
+    // (even ones removed later) so it ends at its removal time instead of counting their time twice.
+    sessionStore.update((current) => batches.reduceRight((rest, batch) => restoreSessions(rest, batch.sessions, batch.at), current));
     setAnnouncement(`Restored ${plural(batches.reduce((sum, batch) => sum + batch.sessions.length, 0))}.`);
     closeToast();
   }

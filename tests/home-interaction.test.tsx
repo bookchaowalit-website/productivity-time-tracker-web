@@ -173,6 +173,23 @@ describe("remove, clear and undo", () => {
     expect(clock()).toBe("00:00:00");
   });
 
+  it("remove running A, start/stop/remove B, Undo: A ends at its removal time, no double-counted time", () => {
+    mount([{ id: "a", label: "Task A", start: NOW - HOUR, end: null }]);
+    press($('[aria-label^="Remove Task A"]')!);
+    act(() => { vi.advanceTimersByTime(1000); });
+    type(labelInput(), "Task B");
+    press(button("Start"));
+    act(() => { vi.advanceTimersByTime(2000); });
+    press(button("Stop"));
+    press($('[aria-label^="Remove Task B"]')!);
+    press(button("Undo"));
+    const list = stored()!;
+    expect(list.map((s) => s.label)).toEqual(["Task B", "Task A"]);
+    expect(list.filter((s) => s.end === null)).toHaveLength(0);
+    expect(list.find((s) => s.label === "Task A")!.end).toBe(NOW);
+    expect(list.find((s) => s.label === "Task B")).toMatchObject({ start: NOW + 1000, end: NOW + 3000 });
+  });
+
   it("a second removal inside the Undo window joins the first; Undo restores both", () => {
     mount([earlier, yesterday]);
     press($('[aria-label^="Remove Email"]')!);

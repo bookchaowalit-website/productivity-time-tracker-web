@@ -46,6 +46,12 @@ export function removeSession(sessions: Session[], id: string): Session[] {
   return sessions.filter((session) => session.id !== id);
 }
 
+/** Removes several sessions in one pass (Clear list); a Set keeps it linear for long histories. */
+export function removeSessions(sessions: Session[], gone: Session[]): Session[] {
+  const ids = new Set(gone.map((session) => session.id));
+  return sessions.filter((session) => !ids.has(session.id));
+}
+
 /**
  * Puts sessions removed at `removedAt` back (Undo), newest first, without double-counting time. A
  * restored running session keeps running only when nothing was started after it was removed;

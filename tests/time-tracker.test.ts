@@ -6,6 +6,7 @@ import {
   parseSessions,
   listSessions,
   removeSession,
+  removeSessions,
   restoreSessions,
   startOfDay,
   sessionDuration,
@@ -119,5 +120,14 @@ describe("restore and lists", () => {
     expect(listSessions([today, old, oldRunning], "today", now)).toEqual([today, oldRunning]);
     expect(listSessions([today, old], "all", now)).toEqual([today, old]);
     expect(listSessions([today], "today", 0)).toEqual([]);
+  });
+});
+
+describe("removeSessions", () => {
+  it("drops every given session in one pass and keeps the order of the rest", () => {
+    const many: Session[] = Array.from({ length: 5000 }, (_, i) => ({ id: `s${i}`, label: "x", start: i, end: i }));
+    const kept = removeSessions(many, many.slice(0, 4999));
+    expect(kept).toEqual([many[4999]]);
+    expect(removeSessions([running, done], [done])).toEqual([running]);
   });
 });
