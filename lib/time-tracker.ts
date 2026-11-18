@@ -5,7 +5,12 @@ import { browserStorage, createLocalStore } from "@/lib/local-store";
  * `removedAt` is set only on a session that was removed while running and brought back running by
  * Undo: it records when it was removed, so a later Undo in another tab can end it there.
  */
-export type Session = { id: string; label: string; start: number; end: number | null; removedAt?: number };
+export type Session = { id: string; label: string; start: number; end: number | null; removedAt?: number; seq?: number };
+/**
+ * `seq` is the start order: a counter taken when the session starts (see takeStartSeq). Two sessions
+ * can share a `start` (coarse Date.now()), so Undo uses `seq` to tell which began later. Sessions
+ * saved before `seq` existed have none and fall back to the end-time rule in newestFirst.
+ */
 
 export const STORE_KEY = "time-tracker-v2";
 
@@ -51,9 +56,41 @@ export function totalDuration(sessions: Session[], now: number): number {
 }
 
 /** Starts a session on top; refused (same array back) while another one is running. */
-export function startSession(sessions: Session[], label: string, id: string, now: number): Session[] {
+export function startSession(sessions: Session[], label: string, id: string, now: number, seq?: number): Session[] {
   if (activeSession(sessions)) return sessions;
-  return [{ id, label: label.trim() || "Untitled", start: now, end: null }, ...sessions];
+  const session: Session = { id, label: label.trim() || "Untitled", start: now, end: null };
+  if (seq !== undefined) session.seq = seq;
+  return [session, ...sessions];
+}
+
+export const SEQ_KEY = "time-tracker-seq";
+let memorySeq = 0;
+
+/**
+ * The next start order number. The counter lives under its own key, so removing a session never
+ * lets a later start reuse its number; it is also kept above every `seq` in `sessions`. If storage
+ * is blocked, an in-memory counter keeps it increasing for this visit.
+ */
+export function takeStartSeq(sessions: Session[], storage = browserStorage()): number {
+  let saved = 0;
+  try {
+    saved = Number(storage?.getItem(SEQ_KEY) ?? 0) || 0;
+  } catch {
+    // Blocked storage: the in-memory counter below still increases.
+  }
+  const highest = sessions.reduce((max, session) => (hasSeq(session) ? Math.max(max, session.seq) : max), 0);
+  const seq = Math.max(saved, highest, memorySeq) + 1;
+  memorySeq = seq;
+  try {
+    storage?.setItem(SEQ_KEY, String(seq));
+  } catch {
+    // Storage is full or blocked: memorySeq carries the order.
+  }
+  return seq;
+}
+
+function hasSeq(session: Session): session is Session & { seq: number } {
+  return typeof session.seq === "number" && Number.isFinite(session.seq);
 }
 
 export function stopSession(sessions: Session[], now: number): Session[] {
@@ -96,15 +133,16 @@ export function restoreSessions(sessions: Session[], removed: Session[], removed
 }
 
 /**
- * Newest first by start. Equal starts (a coarse Date.now()) are ordered by when they actually began:
- * only one session runs at a time, so of two with the same start the earlier one ended at that start
- * and the later one ends later or still runs. Remaining ties keep their list order (original index).
+ * Newest first by start. Equal starts (a coarse Date.now()) are ordered by their real start order:
+ * `seq` when both have one; otherwise (sessions saved before `seq`) a running or later-ended one
+ * counts as newer. Remaining ties keep their list order (original index).
  */
 function newestFirst(sessions: Session[]): Session[] {
   const endKey = (session: Session) => session.end ?? Infinity;
+  const bySeq = (a: Session, b: Session) => (hasSeq(a) && hasSeq(b) ? b.seq - a.seq : 0);
   return sessions
     .map((session, index) => ({ session, index }))
-    .sort((a, b) => b.session.start - a.session.start || endKey(b.session) - endKey(a.session) || a.index - b.index)
+    .sort((a, b) => b.session.start - a.session.start || bySeq(a.session, b.session) || endKey(b.session) - endKey(a.session) || a.index - b.index)
     .map(({ session }) => session);
 }
 

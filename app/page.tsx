@@ -14,6 +14,7 @@ import {
   sessionDuration,
   sessionStore,
   startSession,
+  takeStartSeq,
   stopSession,
   totalDuration,
   type Session,
@@ -117,7 +118,7 @@ export default function Home() {
     // Start comes from the button or Enter in the field; either way the next useful key is Stop.
     focusAfterToggle.current = "stop";
     const id = crypto.randomUUID();
-    sessionStore.update((current) => startSession(current, label, id, Date.now()));
+    sessionStore.update((current) => (activeSession(current) ? current : startSession(current, label, id, Date.now(), takeStartSeq(current))));
     // The store re-reads storage, so another tab may already be timing: only claim a start that happened.
     const running = activeSession(sessionStore.getSnapshot());
     setAnnouncement(running?.id === id ? `Started “${name}”.` : `Not started: “${running?.label ?? name}” is already running.`);

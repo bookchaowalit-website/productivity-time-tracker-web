@@ -223,6 +223,23 @@ describe("remove, clear and undo", () => {
     expect(stored()!.map((s) => [s.id, s.end])).toEqual([["l", null], ["o", NOW]]);
   });
 
+  it("each start saves a growing seq, so same-ms starts keep their real order through Undo", () => {
+    mount([]);
+    type(labelInput(), "A");
+    press(button("Start"));
+    press($('[aria-label^="Remove A"]')!, 0); // removed while running, the clock has not moved
+    type(labelInput(), "B");
+    press(button("Start"));
+    press(button("Stop"));
+    const b = stored()![0];
+    expect(b.start).toBe(NOW);
+    press(button("Undo"));
+    const after = stored()!;
+    expect(after.map((s) => s.label)).toEqual(["B", "A"]);
+    expect(after[1].seq).toBeLessThan(after[0].seq!);
+    expect(after.every((s) => s.end !== null)).toBe(true);
+  });
+
   it("does not announce a start that another tab already beat", () => {
     mount([]);
     type(labelInput(), "Mine");

@@ -13,6 +13,8 @@ import {
   startOfDay,
   sessionDuration,
   startSession,
+  takeStartSeq,
+  SEQ_KEY,
   stopSession,
   totalDuration,
   type Session,
@@ -169,6 +171,47 @@ describe("restore with equal start times", () => {
     expect(restoreSessions([], [b, a], 2_000, 2_000)).toEqual([b, a]);
     expect(restoreSessions([a], [b], 2_000, 2_000)).toEqual([b, a]);
     expect(restoreSessions([a], [c], 2_000, 2_000)).toEqual([a, c]); // full tie: list order is kept
+  });
+});
+
+describe("start order (seq)", () => {
+  it("Undo of running A after B started in the same ms and stopped: B stays newest, A ends at removal", () => {
+    const A: Session = { id: "a", label: "A", start: 1_000, end: null, seq: 1 };
+    const stoppedB: Session = { id: "b", label: "B", start: 1_000, end: 1_800, seq: 2 };
+    const back = restoreSessions([stoppedB], [A], 1_000, 2_000);
+    expect(back).toEqual([stoppedB, { ...A, end: 1_000 }]);
+    expect(activeSession(back)).toBeNull();
+    // No time counted twice: A adds nothing on top of B.
+    expect(back.reduce((sum, s) => sum + ((s.end ?? 2_000) - s.start), 0)).toBe(800);
+  });
+
+  it("seq outranks the end-time fallback; sessions without seq still use it", () => {
+    const older: Session = { id: "o", label: "O", start: 1_000, end: null, seq: 5 };
+    const newer: Session = { id: "n", label: "N", start: 1_000, end: 1_200, seq: 6 };
+    expect(restoreSessions([newer], [older], 1_100, 2_000).map((s) => s.id)).toEqual(["n", "o"]);
+    const legacyOlder: Session = { id: "lo", label: "LO", start: 1_000, end: 1_000 };
+    const legacyNewer: Session = { id: "ln", label: "LN", start: 1_000, end: null };
+    expect(restoreSessions([legacyOlder], [legacyNewer], 1_500, 2_000).map((s) => s.id)).toEqual(["ln", "lo"]);
+    // Mixed (one has seq, one does not): the fallback applies.
+    expect(restoreSessions([{ ...legacyOlder, seq: 9 }], [legacyNewer], 1_500, 2_000).map((s) => s.id)).toEqual(["ln", "lo"]);
+  });
+
+  it("startSession records seq only when given", () => {
+    expect(startSession([], "X", "x", 5, 3)[0]).toEqual({ id: "x", label: "X", start: 5, end: null, seq: 3 });
+    expect(startSession([], "X", "x", 5)[0]).not.toHaveProperty("seq");
+  });
+
+  it("takeStartSeq keeps increasing across removals, above stored sessions, and without storage", () => {
+    const data = new Map<string, string>();
+    const storage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) };
+    const first = takeStartSeq([], storage);
+    const second = takeStartSeq([], storage); // the first session was removed: its number is not reused
+    expect(second).toBe(first + 1);
+    expect(data.get(SEQ_KEY)).toBe(String(second));
+    expect(takeStartSeq([{ id: "s", label: "s", start: 0, end: 0, seq: 100 }], storage)).toBe(101);
+    const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+    const a = takeStartSeq([], blocked);
+    expect(takeStartSeq([], blocked)).toBe(a + 1);
   });
 });
 
