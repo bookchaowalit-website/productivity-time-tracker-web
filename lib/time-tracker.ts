@@ -82,7 +82,7 @@ function ended(session: Session, end: number): Session {
 /**
  * Undo: puts the sessions removed at `removedAt` back exactly as they were (no trimming, dropping or
  * moved starts), merged by id, newest first. A session that was running when removed comes back
- * marked with `removedAt` (kept until it ends). Then one rule keeps time from being counted twice:
+ * marked with this removal's `removedAt` (kept until it ends). Then one rule keeps time from being counted twice:
  * only the newest session may be running. Any other running session ends at the earliest of its
  * removal time, the start of the next session after it, and `now`. Finished sessions are never changed.
  */
@@ -90,7 +90,8 @@ export function restoreSessions(sessions: Session[], removed: Session[], removed
   const ids = new Set(sessions.map((session) => session.id));
   const back = removed
     .filter((session) => !ids.has(session.id))
-    .map((session) => (session.end === null && session.removedAt === undefined ? { ...session, removedAt } : session));
+    // Stamp this removal's time, replacing an older mark from an earlier remove + Undo of the same session.
+    .map((session) => (session.end === null ? { ...session, removedAt } : session));
   return oneRunning([...sessions, ...back].sort((a, b) => b.start - a.start), now);
 }
 

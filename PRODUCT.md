@@ -33,6 +33,12 @@ A portfolio visitor who wants a small honest stopwatch for the task in front of 
 - Live: https://time-tracker.bookchaowalit.com (HTTP 200 on 2026-10-23).
 - The Vercel project `bookchaowalit-time-tracker-frontend` is Git-linked to this repository: a push to `main` deploys (per the parent brief, 2026-11-18; earlier it was CLI-only). `NEXT_PUBLIC_SENTRY_DSN` is already set on the Vercel project (Sentry project `productivity-time-tracker-web`, org `personal-yu0`).
 
+## Known limits
+
+- Order is by start time. If the system clock is set back between sessions, a later session can sort
+  before an earlier one, so Undo may stop a timer that was actually started later.
+- Interleaving Undo and Stop across two open tabs of the app can double-count the overlapping time.
+
 ## Boundaries
 
 - Browser-only apart from the stateless `/api/mcp` route.

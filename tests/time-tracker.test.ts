@@ -182,6 +182,16 @@ describe("restore keeps history exactly", () => {
     expect(back).toEqual(many);
   });
 
+  it("a second removal stamps its own time: remove A, Undo, let it run, remove again, start B, Undo", () => {
+    const A: Session = { id: "a", label: "A", start: 0, end: null };
+    const firstUndo = restoreSessions([], [A], 1_000, 1_500); // removed at 1 s, back running
+    expect(firstUndo).toEqual([{ ...A, removedAt: 1_000 }]);
+    const again = firstUndo[0]; // removed again at 10 s, still carrying the old mark
+    const B: Session = { id: "b", label: "B", start: 11_000, end: null };
+    const back = restoreSessions([B], [again], 10_000, 12_000);
+    expect(back).toEqual([B, { ...A, end: 10_000 }]);
+  });
+
   it("stopping a session brought back by Undo clears its removal mark", () => {
     expect(stopSession([{ ...running, removedAt: 120_000 }], 160_000)).toEqual([{ ...running, end: 160_000 }]);
   });
