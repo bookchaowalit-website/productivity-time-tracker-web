@@ -14,6 +14,7 @@ import {
   sessionDuration,
   startSession,
   takeStartSeq,
+  latestStartSeq,
   SEQ_KEY,
   stopSession,
   totalDuration,
@@ -194,6 +195,22 @@ describe("start order (seq)", () => {
     expect(restoreSessions([legacyOlder], [legacyNewer], 1_500, 2_000).map((s) => s.id)).toEqual(["ln", "lo"]);
     // Mixed (one has seq, one does not): the fallback applies.
     expect(restoreSessions([{ ...legacyOlder, seq: 9 }], [legacyNewer], 1_500, 2_000).map((s) => s.id)).toEqual(["ln", "lo"]);
+  });
+
+  it("Undo of running A after a newer B started and was removed (B not restored): A comes back stopped", () => {
+    const A: Session = { id: "a", label: "A", start: 1_000, end: null, seq: 4 };
+    // Another tab started B (seq 5) after A was removed at 2_000, then removed B too: the list is empty.
+    const back = restoreSessions([], [A], 2_000, 9_000, 5);
+    expect(back).toEqual([{ ...A, end: 2_000 }]);
+    expect(activeSession(back)).toBeNull();
+    // With no newer start since, A still comes back running.
+    expect(restoreSessions([], [A], 2_000, 9_000, 4)).toEqual([{ ...A, removedAt: 2_000 }]);
+  });
+
+  it("latestStartSeq reads the shared counter and never throws", () => {
+    const data = new Map<string, string>([[SEQ_KEY, "41"]]);
+    expect(latestStartSeq(() => ({ getItem: (k) => data.get(k) ?? null, setItem: () => {} }))).toBeGreaterThanOrEqual(41);
+    expect(() => latestStartSeq(() => { throw new DOMException("denied", "SecurityError"); })).not.toThrow();
   });
 
   it("startSession records seq only when given", () => {

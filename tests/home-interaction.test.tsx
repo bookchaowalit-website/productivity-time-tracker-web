@@ -256,6 +256,21 @@ describe("remove, clear and undo", () => {
     expect(stored()![0]).toMatchObject({ label: "Offline" });
   });
 
+  it("Undo brings a running session back stopped when another tab started (and removed) a newer one", () => {
+    mount([]);
+    type(labelInput(), "A");
+    press(button("Start"));
+    vi.setSystemTime(NOW + 60_000);
+    press($('[aria-label^="Remove A"]')!, 0);
+    // Another tab starts B (taking the next start number), then removes it; no storage event arrives here.
+    const seq = Number(localStorage.getItem("time-tracker-seq"));
+    localStorage.setItem("time-tracker-seq", String(seq + 1));
+    vi.setSystemTime(NOW + 10 * 60_000);
+    press(button("Undo"));
+    expect(stored()).toEqual([expect.objectContaining({ label: "A", start: NOW, end: NOW + 60_000 })]);
+    expect(host.textContent).not.toContain("Working on");
+  });
+
   it("does not announce a start that another tab already beat", () => {
     mount([]);
     type(labelInput(), "Mine");

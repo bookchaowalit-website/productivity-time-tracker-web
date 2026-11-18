@@ -50,6 +50,8 @@ Open review findings (Codex, 2026-11-19), accepted for now and not yet fixed:
   removed some first (the toast and Undo themselves act on what was removed).
 - The session list and the All sessions / Today list use `list-style: none` outside a `<nav>` without
   `role="list"`, so VoiceOver on Safari may not announce them as lists.
+- Undo restores each removal batch with its own merge and sort of the whole history; with 20,000 sessions
+  and 300 single removals in one Undo window that is about 0.7 s before storage writes and rendering.
 - The Undo focus, toast spacing and cross-tab behaviour are covered by happy-dom tests only; they have not
   been checked by hand in a real browser or with a screen reader.
 

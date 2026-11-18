@@ -10,6 +10,7 @@ import {
   formatDuration,
   listSessions,
   removeSessions,
+  latestStartSeq,
   restoreSessions,
   sessionDuration,
   sessionStore,
@@ -161,7 +162,10 @@ export default function Home() {
     if (!removed) return;
     const { batches } = removed;
     // Each batch goes back exactly as removed; restoreSessions then leaves only the newest session running.
-    sessionStore.update((current) => batches.reduceRight((rest, batch) => restoreSessions(rest, batch.sessions, batch.at, Date.now()), current));
+    sessionStore.update((current) => {
+      const latestSeq = latestStartSeq();
+      return batches.reduceRight((rest, batch) => restoreSessions(rest, batch.sessions, batch.at, Date.now(), latestSeq), current);
+    });
     setAnnouncement(`Restored ${plural(batches.reduce((sum, batch) => sum + batch.sessions.length, 0))}.`);
     closeToast();
   }

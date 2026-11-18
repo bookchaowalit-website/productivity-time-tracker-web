@@ -91,6 +91,17 @@ export function takeStartSeq(sessions: Session[], getStorage: () => StorageLike 
   return seq;
 }
 
+/** The highest start number handed out so far (shared storage counter or this visit's memory); never throws. */
+export function latestStartSeq(getStorage: () => StorageLike | undefined = browserStorage): number {
+  let saved = 0;
+  try {
+    saved = Number(getStorage()?.getItem(SEQ_KEY) ?? 0) || 0;
+  } catch {
+    // Blocked storage: this visit's counter is all there is.
+  }
+  return Math.max(saved, memorySeq);
+}
+
 function hasSeq(session: Session): session is Session & { seq: number } {
   return typeof session.seq === "number" && Number.isFinite(session.seq);
 }
@@ -124,13 +135,21 @@ function ended(session: Session, end: number): Session {
  * marked with this removal's `removedAt` (kept until it ends). Then one rule keeps time from being counted twice:
  * only the newest session may be running. Any other running session ends at the earliest of its
  * removal time, the start of the next session after it, and `now`. Finished sessions are never changed.
+ * `latestSeq` (from latestStartSeq) is the start counter now: a running session whose seq is below it
+ * was overtaken by a later start, so it comes back ended at its removal time.
  */
-export function restoreSessions(sessions: Session[], removed: Session[], removedAt: number, now: number): Session[] {
+export function restoreSessions(sessions: Session[], removed: Session[], removedAt: number, now: number, latestSeq = 0): Session[] {
   const ids = new Set(sessions.map((session) => session.id));
   const back = removed
     .filter((session) => !ids.has(session.id))
-    // Stamp this removal's time, replacing an older mark from an earlier remove + Undo of the same session.
-    .map((session) => (session.end === null ? { ...session, removedAt } : session));
+    .map((session) => {
+      if (session.end !== null) return session;
+      // A newer session started after this one (the start counter moved past its seq), even if that
+      // one was removed since and is not in the list: come back stopped at the removal, never resumed.
+      if (hasSeq(session) && latestSeq > session.seq) return ended(session, Math.max(session.start, Math.min(removedAt, now)));
+      // Stamp this removal's time, replacing an older mark from an earlier remove + Undo of the same session.
+      return { ...session, removedAt };
+    });
   return oneRunning(newestFirst([...sessions, ...back]), now);
 }
 
