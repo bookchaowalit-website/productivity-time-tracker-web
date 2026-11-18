@@ -4,7 +4,10 @@ import {
   formatDate,
   formatDuration,
   parseSessions,
+  listSessions,
   removeSession,
+  restoreSessions,
+  startOfDay,
   sessionDuration,
   startSession,
   stopSession,
@@ -83,5 +86,27 @@ describe("parseSessions", () => {
       { id: "e", label: "Bad", start: "x", end: null },
     ]);
     expect(parseSessions(raw)).toEqual([running, done]);
+  });
+});
+
+describe("restore and lists", () => {
+  it("restores removed sessions newest first and skips ones already present", () => {
+    expect(restoreSessions([done], [running, done], 200_000)).toEqual([running, done]);
+  });
+
+  it("stops a restored running session when another is running", () => {
+    const fresh: Session = { id: "c", label: "New", start: 300_000, end: null };
+    const back = restoreSessions([fresh], [running], 310_000);
+    expect(back).toEqual([fresh, { ...running, end: 310_000 }]);
+  });
+
+  it("Today keeps sessions since local midnight and the running one; no clock means none", () => {
+    const now = new Date(2026, 10, 18, 9, 0).getTime();
+    const today: Session = { id: "t", label: "T", start: startOfDay(now) + 1, end: startOfDay(now) + 2 };
+    const old: Session = { id: "o", label: "O", start: startOfDay(now) - 10, end: startOfDay(now) - 5 };
+    const oldRunning: Session = { id: "r", label: "R", start: startOfDay(now) - 10, end: null };
+    expect(listSessions([today, old, oldRunning], "today", now)).toEqual([today, oldRunning]);
+    expect(listSessions([today, old], "all", now)).toEqual([today, old]);
+    expect(listSessions([today], "today", 0)).toEqual([]);
   });
 });

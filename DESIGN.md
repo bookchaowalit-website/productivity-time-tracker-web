@@ -1,49 +1,38 @@
 # Design system
 
-## Overview
+Time tracker uses the shared **App shell** (see `APP-SHELL.md`, `app/app-shell.css`,
+`components/app-shell.tsx`), moved onto it on 2026-11-18. It replaced the earlier paper
+"time card room" theme (system-only serif/sans fonts, 9-10px mono labels, low-contrast rust and
+muted text).
 
-Time Tracker is a punch-card room: a quiet paper register wrapped around one live instrument. The timer is the focal object; history reads like a ledger rather than a dashboard.
+## Tokens
 
-## Colors
-
-- Paper: `#EEE7D9`
-- Ink: `#20231F`
-- Rule: `#B8AD9D`
-- Rust action: `#C7653D`
-- Sage live state: `#849878`
+All colours come from the shell's `--as-*` tokens, light and dark via `prefers-color-scheme`. Text
+pairs pass 4.5:1 in both themes; input edges use `--as-field-line` (3:1+).
 
 ## Typography
 
-- Display: `Iowan Old Style`, `Palatino Linotype`, Georgia.
-- Controls and durations: system monospace for measurement and machine labels.
-- Body: neutral Helvetica system sans.
+Inter, loaded as a file with `next/font` (variable `--font-inter` on `<html>`), so every platform
+renders the same face. Durations use tabular numbers. Nothing is smaller than 12px.
 
 ## Layout
 
-- Wide editorial hero followed by a three-part dark clock sheet.
-- Session history is a ruled ledger with numbered rows.
-- Mobile stacks the instrument, controls, total, and ledger without horizontal scrolling.
-
-## Elevation & Depth
-
-Depth comes from the dark instrument sheet, concentric clock rings, and paper contrast. No floating card stack.
-
-## Shapes
-
-Mostly square paper and ruled rows. The circular punch stamp and clock rings are the only round forms.
+Top bar, then lists (All sessions, Today) in a sidebar that becomes a pill row on phones, then the
+head (list title, total and count), the timer card, the history list or its empty state, a note and
+the footer. On phones the timer card and its Start button sit in the first screen.
 
 ## Components
 
-- Station bar
-- Punch stamp
-- Clock face
-- Start/stop control line
-- Punch card ledger
-- Empty register state
+- Timer card: visible label "What are you working on?", the clock, a status pill (Ready grey,
+  Running green: text and tint, not colour alone) and the one filled button (Start or Stop).
+- History rows: label, start and end time, a duration pill (green while running), and Remove,
+  named after the session.
+- Clear list: plain danger button under the list. Remove and Clear show an Undo toast for six
+  seconds instead of a confirm dialog.
+- Empty states: "No sessions yet" and "Nothing logged today".
 
 ## Do's and Don'ts
 
-- Do make elapsed time and the active session unmistakable.
+- Do make elapsed time and the running session unmistakable.
 - Do keep browser-only persistence visible and honest.
-- Don't turn the page into a generic KPI dashboard.
 - Don't imply payroll, sync, or team reporting.

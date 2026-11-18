@@ -1,4 +1,4 @@
-// Time card room: session rules, formatting and the browser-local stores. Pure apart from the stores at the end.
+// Time tracker: session rules, formatting and the browser-local stores. Pure apart from the stores at the end.
 import { browserStorage, createLocalStore } from "@/lib/local-store";
 
 export type Session = { id: string; label: string; start: number; end: number | null };
@@ -44,6 +44,41 @@ export function stopSession(sessions: Session[], now: number): Session[] {
 
 export function removeSession(sessions: Session[], id: string): Session[] {
   return sessions.filter((session) => session.id !== id);
+}
+
+/**
+ * Puts removed sessions back (Undo), newest first. If a session started meanwhile, a restored running
+ * session is stopped at `now` so only one ever runs.
+ */
+export function restoreSessions(sessions: Session[], removed: Session[], now: number): Session[] {
+  const ids = new Set(sessions.map((session) => session.id));
+  let running = activeSession(sessions) !== null;
+  const back = removed
+    .filter((session) => !ids.has(session.id))
+    .map((session) => {
+      if (session.end !== null) return session;
+      if (running) return { ...session, end: Math.max(now, session.start) };
+      running = true;
+      return session;
+    });
+  return [...sessions, ...back].sort((a, b) => b.start - a.start);
+}
+
+/** Local midnight of the day `now` falls on. */
+export function startOfDay(now: number): number {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+export type SessionList = "all" | "today";
+
+/** Sessions shown in a list. Today = started since local midnight, plus a running one. `now` 0 = no clock yet. */
+export function listSessions(sessions: Session[], list: SessionList, now: number): Session[] {
+  if (list === "all") return sessions;
+  if (!now) return [];
+  const midnight = startOfDay(now);
+  return sessions.filter((session) => session.start >= midnight || session.end === null);
 }
 
 function isSession(value: unknown): value is Session {
