@@ -141,9 +141,8 @@ export default function Home() {
   function undo() {
     if (!removed) return;
     const { batches } = removed;
-    // Newest batch first: an older running session must see the sessions started after its removal
-    // (even ones removed later) so it ends at its removal time instead of counting their time twice.
-    sessionStore.update((current) => batches.reduceRight((rest, batch) => restoreSessions(rest, batch.sessions, batch.at), current));
+    // Each batch goes back exactly as removed; restoreSessions then leaves only the newest session running.
+    sessionStore.update((current) => batches.reduceRight((rest, batch) => restoreSessions(rest, batch.sessions, batch.at, Date.now()), current));
     setAnnouncement(`Restored ${plural(batches.reduce((sum, batch) => sum + batch.sessions.length, 0))}.`);
     closeToast();
   }

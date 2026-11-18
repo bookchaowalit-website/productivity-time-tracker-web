@@ -79,49 +79,32 @@ function ended(session: Session, end: number): Session {
   return copy;
 }
 
-const endOf = (session: Session) => session.end ?? Infinity;
-
 /**
- * Puts sessions removed at `removedAt` back (Undo), newest first, without double-counting time.
- * Only the restored sessions are adjusted; sessions already in the history stay as they are
- * (including any old overlap), with one exception below.
- *
- * - A restored running session ends at its removal time when anything started after that or is
- *   running now; otherwise it runs again and remembers its removal time (`removedAt`).
- * - A restored session ends no later than the next existing session starts, starts no earlier than
- *   an existing one that covers its start ends, and is dropped if fully covered.
- * - Exception: an existing session brought back running by an earlier Undo (it has `removedAt`)
- *   is ended at that removal time when a restored session shows something started after it. This
- *   makes two tabs' undos give the same result in either order.
+ * Undo: puts the sessions removed at `removedAt` back exactly as they were (no trimming, dropping or
+ * moved starts), merged by id, newest first. A session that was running when removed comes back
+ * marked with `removedAt` (kept until it ends). Then one rule keeps time from being counted twice:
+ * only the newest session may be running. Any other running session ends at the earliest of its
+ * removal time, the start of the next session after it, and `now`. Finished sessions are never changed.
  */
-export function restoreSessions(sessions: Session[], removed: Session[], removedAt: number): Session[] {
+export function restoreSessions(sessions: Session[], removed: Session[], removedAt: number, now: number): Session[] {
   const ids = new Set(sessions.map((session) => session.id));
-  let result = [...sessions];
-  const back = removed.filter((session) => !ids.has(session.id)).sort((a, b) => a.start - b.start);
-  for (const session of back) {
-    let restored: Session = { ...session };
-    delete restored.removedAt;
-    if (restored.end === null) {
-      const startedSince = result.some((other) => other.end === null || other.start >= removedAt);
-      restored = startedSince ? ended(restored, Math.max(removedAt, restored.start)) : { ...restored, removedAt };
-    }
-    // An existing session running since an earlier Undo really stopped at its removal time.
-    result = result.map((other) =>
-      other.end === null && typeof other.removedAt === "number" && other.start <= restored.start && other.removedAt <= restored.start
-        ? ended(other, Math.max(other.start, other.removedAt))
-        : other,
-    );
-    const later = result.filter((other) => other.start > restored.start).map((other) => other.start);
-    if (later.length && endOf(restored) > Math.min(...later)) restored = ended(restored, Math.min(...later));
-    const cover = result.filter((other) => other.start <= restored.start && endOf(other) > restored.start);
-    if (cover.length) {
-      const coveredUntil = Math.max(...cover.map(endOf));
-      if (coveredUntil >= endOf(restored)) continue;
-      restored = { ...restored, start: coveredUntil };
-    }
-    result.push(restored);
-  }
-  return result.sort((a, b) => b.start - a.start);
+  const back = removed
+    .filter((session) => !ids.has(session.id))
+    .map((session) => (session.end === null && session.removedAt === undefined ? { ...session, removedAt } : session));
+  return oneRunning([...sessions, ...back].sort((a, b) => b.start - a.start), now);
+}
+
+/** `sessions` newest first. Only the newest may run; see restoreSessions. Linear in the list length. */
+export function oneRunning(sessions: Session[], now: number): Session[] {
+  let nextStart = Infinity; // start of the nearest session that starts later than the current one
+  let laterStart = Infinity; // start of the session just before in the list (may equal the current start)
+  return sessions.map((session, index) => {
+    if (session.start < laterStart) nextStart = laterStart;
+    laterStart = session.start;
+    if (index === 0 || session.end !== null) return session;
+    const removedAt = typeof session.removedAt === "number" ? session.removedAt : Infinity;
+    return ended(session, Math.max(session.start, Math.min(removedAt, nextStart, now)));
+  });
 }
 
 /** Local midnight of the day `now` falls on. */

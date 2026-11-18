@@ -190,3 +190,6 @@
 .as-timer .as-button { min-width: 120px; }
 .as-row .as-pill { font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) { .as-timer .as-button { flex: 1 1 100%; } }
+
+/* The skip link's target clears the sticky 52px top bar. */
+#main { scroll-margin-top: 64px; }

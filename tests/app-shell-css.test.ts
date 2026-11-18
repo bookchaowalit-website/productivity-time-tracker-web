@@ -10,3 +10,9 @@ describe("app shell phone list row", () => {
     expect(rule).toContain("margin: -6px");
   });
 });
+
+describe("skip link target", () => {
+  it("clears the sticky top bar", () => {
+    expect(css).toMatch(/#main \{ scroll-margin-top: 64px; \}/);
+  });
+});

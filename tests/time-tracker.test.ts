@@ -9,6 +9,7 @@ import {
   removeSession,
   removeSessions,
   restoreSessions,
+  oneRunning,
   startOfDay,
   sessionDuration,
   startSession,
@@ -92,25 +93,20 @@ describe("parseSessions", () => {
 });
 
 describe("restore and lists", () => {
-  it("restores removed sessions newest first and skips ones already present", () => {
-    expect(restoreSessions([done], [running, done], 200_000)).toEqual([{ ...running, removedAt: 200_000 }, done]);
+  it("restores removed sessions newest first, skips ones already present, marks a running one", () => {
+    expect(restoreSessions([done], [running, done], 200_000, 210_000)).toEqual([{ ...running, removedAt: 200_000 }, done]);
   });
 
-  it("ends a restored running session at its removal time when another one is running", () => {
+  it("ends a restored running session at its removal time when a newer one is running", () => {
     const fresh: Session = { id: "c", label: "New", start: 300_000, end: null };
-    const back = restoreSessions([fresh], [running], 250_000);
-    expect(back).toEqual([fresh, { ...running, end: 250_000 }]);
+    expect(restoreSessions([fresh], [running], 250_000, 400_000)).toEqual([fresh, { ...running, end: 250_000 }]);
   });
 
-  it("ends it at its removal time when a session started and stopped in between (no overlap)", () => {
+  it("ends it at its removal time when a session started and stopped in between (no double count)", () => {
     const between: Session = { id: "c", label: "Between", start: 260_000, end: 280_000 };
-    const back = restoreSessions([between], [running], 250_000);
+    const back = restoreSessions([between], [running], 250_000, 400_000);
     expect(back).toEqual([between, { ...running, end: 250_000 }]);
     expect(activeSession(back)).toBeNull();
-  });
-
-  it("keeps it running when nothing was started after the removal", () => {
-    expect(restoreSessions([done], [running], 250_000)).toEqual([{ ...running, removedAt: 250_000 }, done]);
   });
 
   it("Today keeps sessions since local midnight and the running one; no clock means none", () => {
@@ -133,51 +129,57 @@ describe("removeSessions", () => {
   });
 });
 
-// Two tabs share one store. Tab 1 removes running A at t1; tab 2 then starts B at t2, stops it at t3 and
-// removes it at t4. Each tab then presses Undo; the result must not depend on which goes first.
+// Two tabs share one store. Tab 1 removes running A at t1; tab 2 then starts B at t2 and removes it
+// while it runs at t3. Each tab then presses Undo; the result must not depend on which goes first.
 describe("cross-tab undo", () => {
   const A: Session = { id: "a", label: "A", start: 0, end: null };
-  const B: Session = { id: "b", label: "B", start: 2_000, end: 3_000 };
+  const B: Session = { id: "b", label: "B", start: 2_000, end: null };
   const t1 = 1_000;
-  const t4 = 4_000;
-  const overlaps = (list: Session[]) => {
-    const sorted = [...list].sort((x, y) => x.start - y.start);
-    return sorted.some((entry, i) => i > 0 && (sorted[i - 1].end ?? Infinity) > entry.start);
-  };
+  const t3 = 3_000;
+  const now = 5_000;
 
-  it("gives the same history in either order: A ends at its removal time, B is intact", () => {
-    const afterTab1 = restoreSessions([], [A], t1);
-    expect(afterTab1).toEqual([{ ...A, removedAt: t1 }]);
-    const tab1First = restoreSessions(afterTab1, [B], t4);
-    const tab2First = restoreSessions(restoreSessions([], [B], t4), [A], t1);
+  it("either order ends with B running and A ended at its removal time", () => {
+    const tab1First = restoreSessions(restoreSessions([], [A], t1, now), [B], t3, now);
+    const tab2First = restoreSessions(restoreSessions([], [B], t3, now), [A], t1, now);
     expect(tab1First).toEqual(tab2First);
-    expect(tab1First).toEqual([B, { ...A, end: t1 }]);
-    expect(totalDuration(tab1First, 10_000)).toBe(totalDuration(tab2First, 10_000));
-    expect(overlaps(tab1First)).toBe(false);
-    expect(activeSession(tab1First)).toBeNull();
+    expect(tab1First).toEqual([{ ...B, removedAt: t3 }, { ...A, end: t1 }]);
+    expect(tab1First.filter((session) => session.end === null)).toHaveLength(1);
+  });
+
+  it("a stopped B in between still ends a restored A at its removal time", () => {
+    const stoppedB: Session = { ...B, end: 2_500 };
+    expect(restoreSessions(restoreSessions([], [A], t1, now), [stoppedB], t3, now)).toEqual([stoppedB, { ...A, end: t1 }]);
+    expect(restoreSessions([stoppedB], [A], t1, now)).toEqual([stoppedB, { ...A, end: t1 }]);
   });
 });
 
-describe("restore only adjusts the restored sessions", () => {
-  it("leaves an unrelated pre-existing overlap unchanged", () => {
+describe("restore keeps history exactly", () => {
+  it("Clear list then Undo gives back the same history, pre-existing overlap included", () => {
     const x: Session = { id: "x", label: "x", start: 100, end: 500 };
     const y: Session = { id: "y", label: "y", start: 300, end: 700 }; // overlaps x, e.g. after a clock change
     const z: Session = { id: "z", label: "z", start: 900, end: 1_000 };
-    const back = restoreSessions([y, x], [z], 2_000);
-    expect(back).toEqual([z, y, x]);
+    const history = [z, y, x];
+    const cleared = removeSessions(history, history);
+    expect(JSON.stringify(restoreSessions(cleared, history, 2_000, 2_000))).toBe(JSON.stringify(history));
+    expect(restoreSessions([y, x], [z], 2_000, 2_000)).toEqual([z, y, x]);
   });
 
-  it("ends a restored running session at its removal time while another runs; the running one is untouched", () => {
-    const live: Session = { id: "l", label: "l", start: 5_000, end: null };
-    const back = restoreSessions([live], [{ id: "r", label: "r", start: 1_000, end: null }], 3_000);
-    expect(back).toEqual([live, { id: "r", label: "r", start: 1_000, end: 3_000 }]);
+  it("never ends a running session earlier than its start, and caps at now", () => {
+    const late: Session = { id: "l", label: "l", start: 900, end: null };
+    const newer: Session = { id: "n", label: "n", start: 950, end: null };
+    expect(oneRunning([newer, late], 920)).toEqual([newer, { ...late, end: 920 }]);
+    expect(oneRunning([newer, { ...late, removedAt: 100 }], 2_000)).toEqual([newer, { ...late, end: 900 }]);
   });
 
-  it("clips a restored session to the next existing start, trims a covered start, drops a fully covered one", () => {
-    const existing: Session = { id: "e", label: "e", start: 1_000, end: 2_000 };
-    expect(restoreSessions([existing], [{ id: "a", label: "a", start: 500, end: 1_500 }], 9_000)).toEqual([existing, { id: "a", label: "a", start: 500, end: 1_000 }]);
-    expect(restoreSessions([existing], [{ id: "b", label: "b", start: 1_500, end: 2_500 }], 9_000)).toEqual([{ id: "b", label: "b", start: 2_000, end: 2_500 }, existing]);
-    expect(restoreSessions([existing], [{ id: "c", label: "c", start: 1_200, end: 1_800 }], 9_000)).toEqual([existing]);
+  it("restores 20,000 sessions in well under 50 ms", () => {
+    const many: Session[] = Array.from({ length: 20_000 }, (_, i) => ({ id: `s${i}`, label: "x", start: 40_000 - i * 2, end: 40_001 - i * 2 }));
+    const kept = many.filter((_, i) => i % 2 === 0);
+    const gone = many.filter((_, i) => i % 2 === 1);
+    restoreSessions(kept, gone, 50_000, 50_000); // warm up
+    const t0 = performance.now();
+    const back = restoreSessions(kept, gone, 50_000, 50_000);
+    expect(performance.now() - t0).toBeLessThan(50);
+    expect(back).toEqual(many);
   });
 
   it("stopping a session brought back by Undo clears its removal mark", () => {

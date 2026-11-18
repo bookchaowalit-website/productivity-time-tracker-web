@@ -226,6 +226,17 @@ describe("remove, clear and undo", () => {
     expect(host.querySelector(".as-row .as-pill")!.textContent).toContain("00:00:03");
   });
 
+  it("Clear list then Undo leaves the saved history byte-identical, pre-existing overlap included", () => {
+    const x: Session = { id: "x", label: "X", start: NOW - 3 * HOUR, end: NOW - HOUR };
+    const y: Session = { id: "y", label: "Y", start: NOW - 2 * HOUR, end: NOW - HOUR / 2 }; // overlaps X
+    mount([y, x, yesterday]);
+    const before = localStorage.getItem(STORE_KEY);
+    press(button("Clear list"));
+    expect(stored()).toEqual([]);
+    press(button("Undo"));
+    expect(localStorage.getItem(STORE_KEY)).toBe(before);
+  });
+
   it("closing the toast while a session runs moves focus to Stop", () => {
     mount([{ id: "r", label: "Running now", start: NOW - HOUR, end: null }, earlier]);
     press($('[aria-label^="Remove Email"]')!, 0);
