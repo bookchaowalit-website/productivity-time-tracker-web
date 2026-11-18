@@ -193,3 +193,6 @@
 
 /* The skip link's target clears the sticky 52px top bar. */
 #main { scroll-margin-top: 64px; }
+
+/* The top bar is sticky: keep skip-link targets and keyboard-focused controls clear of it when the page scrolls to them. */
+html { scroll-padding-top: 64px; scroll-padding-bottom: 16px; }
