@@ -1,5 +1,5 @@
 // Time tracker: session rules, formatting and the browser-local stores. Pure apart from the stores at the end.
-import { browserStorage, createLocalStore } from "@/lib/local-store";
+import { browserStorage, createLocalStore, type StorageLike } from "@/lib/local-store";
 
 /**
  * `removedAt` is set only on a session that was removed while running and brought back running by
@@ -71,10 +71,12 @@ let memorySeq = 0;
  * lets a later start reuse its number; it is also kept above every `seq` in `sessions`. If storage
  * is blocked, an in-memory counter keeps it increasing for this visit.
  */
-export function takeStartSeq(sessions: Session[], storage = browserStorage()): number {
+export function takeStartSeq(sessions: Session[], getStorage: () => StorageLike | undefined = browserStorage): number {
+  // Every storage touch is inside a try, the window.localStorage getter included: a browser that
+  // blocks storage throws a SecurityError there, and Start must still work on the in-memory counter.
   let saved = 0;
   try {
-    saved = Number(storage?.getItem(SEQ_KEY) ?? 0) || 0;
+    saved = Number(getStorage()?.getItem(SEQ_KEY) ?? 0) || 0;
   } catch {
     // Blocked storage: the in-memory counter below still increases.
   }
@@ -82,7 +84,7 @@ export function takeStartSeq(sessions: Session[], storage = browserStorage()): n
   const seq = Math.max(saved, highest, memorySeq) + 1;
   memorySeq = seq;
   try {
-    storage?.setItem(SEQ_KEY, String(seq));
+    getStorage()?.setItem(SEQ_KEY, String(seq));
   } catch {
     // Storage is full or blocked: memorySeq carries the order.
   }

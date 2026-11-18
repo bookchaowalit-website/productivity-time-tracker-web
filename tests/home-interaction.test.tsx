@@ -240,6 +240,22 @@ describe("remove, clear and undo", () => {
     expect(after.every((s) => s.end !== null)).toBe(true);
   });
 
+  it("Start still works when the browser blocks localStorage entirely", () => {
+    mount([]);
+    const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage")!;
+    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new DOMException("denied", "SecurityError"); } });
+    try {
+      type(labelInput(), "Offline");
+      press(button("Start"));
+      expect(host.textContent).toContain("Working on");
+      expect($('[role="status"]')!.textContent).toBe("Started “Offline”.");
+    } finally {
+      Object.defineProperty(window, "localStorage", descriptor);
+    }
+    press(button("Stop")); // storage is back: saving resyncs the shared store for the next test
+    expect(stored()![0]).toMatchObject({ label: "Offline" });
+  });
+
   it("does not announce a start that another tab already beat", () => {
     mount([]);
     type(labelInput(), "Mine");

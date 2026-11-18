@@ -201,17 +201,23 @@ describe("start order (seq)", () => {
     expect(startSession([], "X", "x", 5)[0]).not.toHaveProperty("seq");
   });
 
+  it("takeStartSeq never throws when even reaching localStorage throws (SecurityError)", () => {
+    const denied = () => { throw new DOMException("denied", "SecurityError"); };
+    const a = takeStartSeq([], denied);
+    expect(takeStartSeq([], denied)).toBe(a + 1);
+  });
+
   it("takeStartSeq keeps increasing across removals, above stored sessions, and without storage", () => {
     const data = new Map<string, string>();
     const storage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) };
-    const first = takeStartSeq([], storage);
-    const second = takeStartSeq([], storage); // the first session was removed: its number is not reused
+    const first = takeStartSeq([], () => storage);
+    const second = takeStartSeq([], () => storage); // the first session was removed: its number is not reused
     expect(second).toBe(first + 1);
     expect(data.get(SEQ_KEY)).toBe(String(second));
-    expect(takeStartSeq([{ id: "s", label: "s", start: 0, end: 0, seq: 100 }], storage)).toBe(101);
+    expect(takeStartSeq([{ id: "s", label: "s", start: 0, end: 0, seq: 100 }], () => storage)).toBe(101);
     const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
-    const a = takeStartSeq([], blocked);
-    expect(takeStartSeq([], blocked)).toBe(a + 1);
+    const a = takeStartSeq([], () => blocked);
+    expect(takeStartSeq([], () => blocked)).toBe(a + 1);
   });
 });
 
@@ -233,15 +239,22 @@ describe("restore keeps history exactly", () => {
     expect(oneRunning([newer, { ...late, removedAt: 100 }], 2_000)).toEqual([newer, { ...late, end: 900 }]);
   });
 
-  it("restores 20,000 sessions in well under 50 ms", () => {
-    const many: Session[] = Array.from({ length: 20_000 }, (_, i) => ({ id: `s${i}`, label: "x", start: 40_000 - i * 2, end: 40_001 - i * 2 }));
+  it("restores 20,000 sessions correctly with an n log n number of comparisons (no wall-clock threshold)", () => {
+    const n = 20_000;
+    const many: Session[] = Array.from({ length: n }, (_, i) => ({ id: `s${i}`, label: "x", start: 40_000 - i * 2, end: 40_001 - i * 2 }));
     const kept = many.filter((_, i) => i % 2 === 0);
     const gone = many.filter((_, i) => i % 2 === 1);
-    restoreSessions(kept, gone, 50_000, 50_000); // warm up
-    const t0 = performance.now();
+    // Count comparator calls instead of timing, so a busy CI runner cannot fail the test.
+    let comparisons = 0;
+    const sort = Array.prototype.sort;
+    const spy = vi.spyOn(Array.prototype, "sort").mockImplementation(function (this: unknown[], compare?: (a: unknown, b: unknown) => number) {
+      return sort.call(this, compare && ((a: unknown, b: unknown) => { comparisons++; return compare(a, b); }));
+    });
     const back = restoreSessions(kept, gone, 50_000, 50_000);
-    expect(performance.now() - t0).toBeLessThan(50);
+    spy.mockRestore();
     expect(back).toEqual(many);
+    expect(comparisons).toBeGreaterThan(0);
+    expect(comparisons).toBeLessThan(2 * n * Math.log2(n));
   });
 
   it("a second removal stamps its own time: remove A, Undo, let it run, remove again, start B, Undo", () => {

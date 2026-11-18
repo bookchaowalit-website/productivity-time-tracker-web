@@ -38,6 +38,20 @@ A portfolio visitor who wants a small honest stopwatch for the task in front of 
 - Order is by start time. If the system clock is set back between sessions, a later session can sort
   before an earlier one, so Undo may stop a timer that was actually started later.
 - Interleaving Undo and Stop across two open tabs of the app can double-count the overlapping time.
+- Sessions with the same start time are ordered by a start counter (`seq`). Sessions saved before
+  2026-11-19 have none and fall back to "running or later-ended is newer"; with storage blocked the
+  counter lasts for the visit only.
+
+Open review findings (Codex, 2026-11-19), accepted for now and not yet fixed:
+
+- If another tab stops A and starts B before this tab hears about it, Stop here stops B but the status
+  message still names A (it reads the session this tab last rendered).
+- Clear list announces the count this tab showed, not the number actually removed when another tab
+  removed some first (the toast and Undo themselves act on what was removed).
+- The session list and the All sessions / Today list use `list-style: none` outside a `<nav>` without
+  `role="list"`, so VoiceOver on Safari may not announce them as lists.
+- The Undo focus, toast spacing and cross-tab behaviour are covered by happy-dom tests only; they have not
+  been checked by hand in a real browser or with a screen reader.
 
 ## Boundaries
 
