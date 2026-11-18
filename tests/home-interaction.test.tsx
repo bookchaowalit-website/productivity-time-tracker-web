@@ -128,7 +128,7 @@ describe("remove, clear and undo", () => {
 
   it("Clear list empties the visible list with an Undo; the toast times out after six seconds", () => {
     mount([earlier, yesterday]);
-    press($('[aria-label="Clear 2 sessions from All sessions"]')!);
+    press($('[aria-label="Clear list: 2 sessions in All sessions"]')!);
     expect(stored()).toEqual([]);
     expect(host.textContent).toContain("No sessions yet");
     expect($(".as-toast")!.textContent).toContain("Cleared 2 sessions");
@@ -140,7 +140,7 @@ describe("remove, clear and undo", () => {
   it("Clear in Today keeps older sessions; Escape dismisses the toast without restoring", () => {
     mount([earlier, yesterday]);
     press(button("Today", $(".as-side")!));
-    press($('[aria-label="Clear 1 session from Today"]')!, 0);
+    press($('[aria-label="Clear list: 1 session in Today"]')!, 0);
     act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     expect($(".as-toast")).toBeNull();
     expect(stored()!.map((s) => s.id)).toEqual(["y"]);
@@ -194,13 +194,36 @@ describe("remove, clear and undo", () => {
     mount([earlier, yesterday]);
     press($('[aria-label^="Remove Email"]')!);
     act(() => { vi.advanceTimersByTime(3000); });
-    press($('[aria-label="Clear 1 session from All sessions"]')!);
+    press($('[aria-label="Clear list: 1 session in All sessions"]')!);
     expect(stored()).toEqual([]);
     expect($(".as-toast")!.textContent).toContain("Removed 2 sessions");
     act(() => { vi.advanceTimersByTime(4000); });
     expect($(".as-toast")).not.toBeNull();
     press(button("Undo"));
     expect(stored()!.map((s) => s.id)).toEqual(["e", "y"]);
+  });
+
+  it("Undo puts back the session as it is in the store, not as this tab last rendered it", () => {
+    mount([{ id: "a", label: "Task A", start: NOW - HOUR, end: null }]);
+    // Another tab stops A; no storage event reaches this tab, so it still renders A as running.
+    localStorage.setItem(STORE_KEY, JSON.stringify([{ id: "a", label: "Task A", start: NOW - HOUR, end: NOW - 60_000 }]));
+    press($('[aria-label^="Remove Task A"]')!);
+    press(button("Undo"));
+    expect(stored()).toEqual([{ id: "a", label: "Task A", start: NOW - HOUR, end: NOW - 60_000 }]);
+  });
+
+  it("the Clear list label starts with its visible text", () => {
+    mount([earlier, yesterday]);
+    const clear = button("Clear list");
+    expect(clear.getAttribute("aria-label")).toBe("Clear list: 2 sessions in All sessions");
+  });
+
+  it("finished rows keep their date text across clock ticks while the running row counts up", () => {
+    mount([{ id: "r", label: "Live", start: NOW - 1000, end: null }, earlier]);
+    const finished = host.querySelectorAll(".as-row")[1];
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(host.querySelectorAll(".as-row")[1]).toBe(finished);
+    expect(host.querySelector(".as-row .as-pill")!.textContent).toContain("00:00:03");
   });
 
   it("closing the toast while a session runs moves focus to Stop", () => {

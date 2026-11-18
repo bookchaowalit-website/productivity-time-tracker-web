@@ -13,8 +13,18 @@ export function formatDuration(milliseconds: number): string {
   return [hours, minutes, remaining].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
+// One formatter per time zone, created once: building an Intl.DateTimeFormat is slow, and a long
+// history formats every row on each clock tick.
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 export function formatDate(timestamp: number, timeZone?: string): string {
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone }).format(timestamp);
+  const key = timeZone ?? "";
+  let formatter = dateFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone });
+    dateFormatters.set(key, formatter);
+  }
+  return formatter.format(timestamp);
 }
 
 export function activeSession(sessions: Session[]): Session | null {
@@ -53,22 +63,30 @@ export function removeSessions(sessions: Session[], gone: Session[]): Session[] 
 }
 
 /**
- * Puts sessions removed at `removedAt` back (Undo), newest first, without double-counting time. A
- * restored running session keeps running only when nothing was started after it was removed;
- * otherwise it ends at `removedAt`, so sessions never overlap and only one ever runs.
+ * Puts sessions removed at `removedAt` back (Undo), newest first, without double-counting time.
+ * A restored running session ends at `removedAt` when anything started after its removal. Then the
+ * whole history is clipped so no two sessions overlap: an earlier session ends no later than the
+ * start of the next one. That makes the result the same whichever order (or tab) the undos run in,
+ * and leaves at most one session running (the newest).
  */
 export function restoreSessions(sessions: Session[], removed: Session[], removedAt: number): Session[] {
   const ids = new Set(sessions.map((session) => session.id));
-  let busy = activeSession(sessions) !== null || sessions.some((session) => session.start >= removedAt);
+  const startedSince = activeSession(sessions) !== null || sessions.some((session) => session.start >= removedAt);
   const back = removed
     .filter((session) => !ids.has(session.id))
-    .map((session) => {
-      if (session.end !== null) return session;
-      if (busy) return { ...session, end: Math.max(removedAt, session.start) };
-      busy = true;
-      return session;
-    });
-  return [...sessions, ...back].sort((a, b) => b.start - a.start);
+    .map((session) => (session.end === null && startedSince ? { ...session, end: Math.max(removedAt, session.start) } : session));
+  return withoutOverlaps([...sessions, ...back]);
+}
+
+/** Newest first; each session ends no later than the start of the one after it (so only the newest can run). */
+export function withoutOverlaps(sessions: Session[]): Session[] {
+  const sorted = [...sessions].sort((a, b) => b.start - a.start);
+  return sorted.map((session, index) => {
+    if (index === 0) return session;
+    const nextStart = sorted[index - 1].start;
+    if (session.end !== null && session.end <= nextStart) return session;
+    return { ...session, end: Math.max(session.start, nextStart) };
+  });
 }
 
 /** Local midnight of the day `now` falls on. */

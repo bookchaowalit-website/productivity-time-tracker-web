@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { AppFoot, AppTop, ListButton, Pill } from "@/components/app-shell";
 import {
   activeSession,
@@ -26,6 +26,28 @@ const LISTS: { value: SessionList; label: string }[] = [
 
 const plural = (count: number) => `${count} ${count === 1 ? "session" : "sessions"}`;
 
+type RowProps = { session: Session; duration: string; onRemove: (session: Session, viaKeyboard: boolean) => void };
+
+/**
+ * One history row. The clock ticks twice a second, so finished rows (whose duration text never
+ * changes) skip re-rendering. onRemove is left out of the comparison on purpose: the page's remove
+ * handler reads only the store and refs, so an older copy behaves the same.
+ */
+const SessionRow = memo(function SessionRow({ session, duration, onRemove }: RowProps) {
+  const live = session.end === null;
+  const started = formatDate(session.start);
+  return (
+    <li className="as-row">
+      <div>
+        <h3>{session.label}</h3>
+        <p>{started}{live ? " · still running" : ` → ${formatDate(session.end!)}`}</p>
+      </div>
+      <Pill tone={live ? "green" : "grey"}><span className="as-sr">{live ? "Running, " : "Duration "}</span>{duration}</Pill>
+      <button type="button" className="as-plain as-danger" aria-label={`Remove ${session.label}, ${started}`} onClick={(event) => onRemove(session, event.detail === 0)}>Remove</button>
+    </li>
+  );
+}, (before, after) => before.session === after.session && before.duration === after.duration);
+
 export default function Home() {
   const sessions = useSyncExternalStore(sessionStore.subscribe, sessionStore.getSnapshot, sessionStore.getServerSnapshot);
   // 0 on the server and during hydration, so no visitor clock is baked into the HTML.
@@ -42,6 +64,9 @@ export default function Home() {
   const undoRef = useRef<HTMLButtonElement>(null);
   const focusAfterToggle = useRef<"start" | "stop" | null>(null);
   const focusAfterToast = useRef(false);
+  // The committed Undo state, for handlers that may come from an older render (memoized rows).
+  const removedRef = useRef(removed);
+  useEffect(() => { removedRef.current = removed; }, [removed]);
 
   const active = activeSession(sessions);
   const visible = listSessions(sessions, list, now);
@@ -85,16 +110,25 @@ export default function Home() {
   }
   function discard(gone: Session[], message: string, viaKeyboard: boolean) {
     let at = 0;
+    let taken: Session[] = [];
     sessionStore.update((current) => {
       at = Date.now();
-      return removeSessions(current, gone);
+      // Keep the sessions as they are in the store now (another tab may have stopped one since
+      // this render), so Undo puts back exactly what was removed.
+      const ids = new Set(gone.map((session) => session.id));
+      taken = current.filter((session) => ids.has(session.id));
+      return removeSessions(current, taken);
     });
+    if (!taken.length) return;
     // A second removal inside the Undo window joins the first instead of replacing it.
-    const batches = [...(removed?.batches ?? []), { sessions: gone, at }];
+    const batches = [...(removedRef.current?.batches ?? []), { sessions: taken, at }];
     const count = batches.reduce((sum, batch) => sum + batch.sessions.length, 0);
     const text = batches.length === 1 ? message : `Removed ${plural(count)}`;
     setRemoved({ batches, message: text, viaKeyboard });
     setAnnouncement(`${text}. Undo is available for a few seconds.`);
+  }
+  function removeOne(session: Session, viaKeyboard: boolean) {
+    discard([session], `Removed “${session.label}”`, viaKeyboard);
   }
   function closeToast() {
     focusAfterToast.current = true;
@@ -164,22 +198,12 @@ export default function Home() {
           {visible.length ? (
             <>
               <ul className="as-list" aria-label={`${title}, newest first`}>
-                {visible.map((session) => {
-                  const live = session.end === null;
-                  return (
-                    <li className="as-row" key={session.id}>
-                      <div>
-                        <h3>{session.label}</h3>
-                        <p>{formatDate(session.start)}{live ? " · still running" : ` → ${formatDate(session.end!)}`}</p>
-                      </div>
-                      <Pill tone={live ? "green" : "grey"}><span className="as-sr">{live ? "Running, " : "Duration "}</span>{formatDuration(sessionDuration(session, now))}</Pill>
-                      <button type="button" className="as-plain as-danger" aria-label={`Remove ${session.label}, ${formatDate(session.start)}`} onClick={(event) => discard([session], `Removed “${session.label}”`, event.detail === 0)}>Remove</button>
-                    </li>
-                  );
-                })}
+                {visible.map((session) => (
+                  <SessionRow key={session.id} session={session} duration={formatDuration(sessionDuration(session, now))} onRemove={removeOne} />
+                ))}
               </ul>
               <div className="as-actions-row">
-                <button type="button" className="as-plain as-danger" aria-label={`Clear ${plural(visible.length)} from ${title}`} onClick={(event) => discard(visible, `Cleared ${plural(visible.length)}`, event.detail === 0)}>Clear list</button>
+                <button type="button" className="as-plain as-danger" aria-label={`Clear list: ${plural(visible.length)} in ${title}`} onClick={(event) => discard(visible, `Cleared ${plural(visible.length)}`, event.detail === 0)}>Clear list</button>
               </div>
             </>
           ) : (
