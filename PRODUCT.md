@@ -26,7 +26,7 @@ A portfolio visitor who wants a small honest stopwatch for the task in front of 
 
 ## Look
 
-- 2026-11-18: moved onto the shared App shell (Geist, light + dark, 12px+ text, 44px targets, 4.5:1 contrast). Vercel Analytics and Speed Insights removed (owner decision 2026-11-17: no analytics, so no consent banner). Storage key `time-tracker-v2` and its shape are unchanged, so saved sessions still load.
+- 2026-11-18: moved onto the shared App shell (Geist, light + dark, 12px+ text, 44px targets, 4.5:1 contrast). Vercel Analytics and Speed Insights removed (owner decision 2026-11-17: no analytics, so no consent banner). Storage key `time-tracker-v2` and its shape are unchanged, so saved sessions still load; the only addition is an optional `removedAt` on a session that Undo brought back running (older data without it loads as before).
 
 ## Live URL and deploy state
 

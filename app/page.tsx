@@ -5,6 +5,7 @@ import { AppFoot, AppTop, ListButton, Pill } from "@/components/app-shell";
 import {
   activeSession,
   clockStore,
+  currentTimeZone,
   formatDate,
   formatDuration,
   listSessions,
@@ -26,27 +27,27 @@ const LISTS: { value: SessionList; label: string }[] = [
 
 const plural = (count: number) => `${count} ${count === 1 ? "session" : "sessions"}`;
 
-type RowProps = { session: Session; duration: string; onRemove: (session: Session, viaKeyboard: boolean) => void };
+type RowProps = { session: Session; duration: string; zone: string; onRemove: (session: Session, viaKeyboard: boolean) => void };
 
 /**
  * One history row. The clock ticks twice a second, so finished rows (whose duration text never
- * changes) skip re-rendering. onRemove is left out of the comparison on purpose: the page's remove
+ * changes) skip re-rendering unless the viewer's time zone changes. onRemove is left out of the comparison on purpose: the page's remove
  * handler reads only the store and refs, so an older copy behaves the same.
  */
-const SessionRow = memo(function SessionRow({ session, duration, onRemove }: RowProps) {
+const SessionRow = memo(function SessionRow({ session, duration, zone, onRemove }: RowProps) {
   const live = session.end === null;
-  const started = formatDate(session.start);
+  const started = formatDate(session.start, zone);
   return (
     <li className="as-row">
       <div>
         <h3>{session.label}</h3>
-        <p>{started}{live ? " · still running" : ` → ${formatDate(session.end!)}`}</p>
+        <p>{started}{live ? " · still running" : ` → ${formatDate(session.end!, zone)}`}</p>
       </div>
       <Pill tone={live ? "green" : "grey"}><span className="as-sr">{live ? "Running, " : "Duration "}</span>{duration}</Pill>
       <button type="button" className="as-plain as-danger" aria-label={`Remove ${session.label}, ${started}`} onClick={(event) => onRemove(session, event.detail === 0)}>Remove</button>
     </li>
   );
-}, (before, after) => before.session === after.session && before.duration === after.duration);
+}, (before, after) => before.session === after.session && before.duration === after.duration && before.zone === after.zone);
 
 export default function Home() {
   const sessions = useSyncExternalStore(sessionStore.subscribe, sessionStore.getSnapshot, sessionStore.getServerSnapshot);
@@ -70,6 +71,8 @@ export default function Home() {
 
   const active = activeSession(sessions);
   const visible = listSessions(sessions, list, now);
+  // Read per render (one cheap lookup), so rows re-render if the device time zone changes.
+  const zone = currentTimeZone();
   const title = LISTS.find((entry) => entry.value === list)!.label;
 
   // Start and Stop swap places; keep keyboard focus on the button that replaced the one pressed.
@@ -199,7 +202,7 @@ export default function Home() {
             <>
               <ul className="as-list" aria-label={`${title}, newest first`}>
                 {visible.map((session) => (
-                  <SessionRow key={session.id} session={session} duration={formatDuration(sessionDuration(session, now))} onRemove={removeOne} />
+                  <SessionRow key={session.id} session={session} duration={formatDuration(sessionDuration(session, now))} zone={zone} onRemove={removeOne} />
                 ))}
               </ul>
               <div className="as-actions-row">

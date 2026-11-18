@@ -1,7 +1,11 @@
 // Time tracker: session rules, formatting and the browser-local stores. Pure apart from the stores at the end.
 import { browserStorage, createLocalStore } from "@/lib/local-store";
 
-export type Session = { id: string; label: string; start: number; end: number | null };
+/**
+ * `removedAt` is set only on a session that was removed while running and brought back running by
+ * Undo: it records when it was removed, so a later Undo in another tab can end it there.
+ */
+export type Session = { id: string; label: string; start: number; end: number | null; removedAt?: number };
 
 export const STORE_KEY = "time-tracker-v2";
 
@@ -14,11 +18,17 @@ export function formatDuration(milliseconds: number): string {
 }
 
 // One formatter per time zone, created once: building an Intl.DateTimeFormat is slow, and a long
-// history formats every row on each clock tick.
+// history formats every row on each clock tick. The key is the resolved zone, so a changed device
+// zone gets its own formatter instead of a stale one.
 const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 
-export function formatDate(timestamp: number, timeZone?: string): string {
-  const key = timeZone ?? "";
+/** The viewer's current time zone (pass it to formatDate; rows re-render when it changes). */
+export function currentTimeZone(): string {
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+export function formatDate(timestamp: number, timeZone: string = currentTimeZone()): string {
+  const key = timeZone;
   let formatter = dateFormatters.get(key);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone });
@@ -49,7 +59,7 @@ export function startSession(sessions: Session[], label: string, id: string, now
 export function stopSession(sessions: Session[], now: number): Session[] {
   const active = activeSession(sessions);
   if (!active) return sessions;
-  return sessions.map((session) => (session.id === active.id ? { ...session, end: Math.max(now, session.start) } : session));
+  return sessions.map((session) => (session.id === active.id ? ended(session, Math.max(now, session.start)) : session));
 }
 
 export function removeSession(sessions: Session[], id: string): Session[] {
@@ -62,31 +72,56 @@ export function removeSessions(sessions: Session[], gone: Session[]): Session[] 
   return sessions.filter((session) => !ids.has(session.id));
 }
 
+/** A copy of a session ended at `end` (and no longer marked as brought back by Undo). */
+function ended(session: Session, end: number): Session {
+  const copy: Session = { ...session, end };
+  delete copy.removedAt;
+  return copy;
+}
+
+const endOf = (session: Session) => session.end ?? Infinity;
+
 /**
  * Puts sessions removed at `removedAt` back (Undo), newest first, without double-counting time.
- * A restored running session ends at `removedAt` when anything started after its removal. Then the
- * whole history is clipped so no two sessions overlap: an earlier session ends no later than the
- * start of the next one. That makes the result the same whichever order (or tab) the undos run in,
- * and leaves at most one session running (the newest).
+ * Only the restored sessions are adjusted; sessions already in the history stay as they are
+ * (including any old overlap), with one exception below.
+ *
+ * - A restored running session ends at its removal time when anything started after that or is
+ *   running now; otherwise it runs again and remembers its removal time (`removedAt`).
+ * - A restored session ends no later than the next existing session starts, starts no earlier than
+ *   an existing one that covers its start ends, and is dropped if fully covered.
+ * - Exception: an existing session brought back running by an earlier Undo (it has `removedAt`)
+ *   is ended at that removal time when a restored session shows something started after it. This
+ *   makes two tabs' undos give the same result in either order.
  */
 export function restoreSessions(sessions: Session[], removed: Session[], removedAt: number): Session[] {
   const ids = new Set(sessions.map((session) => session.id));
-  const startedSince = activeSession(sessions) !== null || sessions.some((session) => session.start >= removedAt);
-  const back = removed
-    .filter((session) => !ids.has(session.id))
-    .map((session) => (session.end === null && startedSince ? { ...session, end: Math.max(removedAt, session.start) } : session));
-  return withoutOverlaps([...sessions, ...back]);
-}
-
-/** Newest first; each session ends no later than the start of the one after it (so only the newest can run). */
-export function withoutOverlaps(sessions: Session[]): Session[] {
-  const sorted = [...sessions].sort((a, b) => b.start - a.start);
-  return sorted.map((session, index) => {
-    if (index === 0) return session;
-    const nextStart = sorted[index - 1].start;
-    if (session.end !== null && session.end <= nextStart) return session;
-    return { ...session, end: Math.max(session.start, nextStart) };
-  });
+  let result = [...sessions];
+  const back = removed.filter((session) => !ids.has(session.id)).sort((a, b) => a.start - b.start);
+  for (const session of back) {
+    let restored: Session = { ...session };
+    delete restored.removedAt;
+    if (restored.end === null) {
+      const startedSince = result.some((other) => other.end === null || other.start >= removedAt);
+      restored = startedSince ? ended(restored, Math.max(removedAt, restored.start)) : { ...restored, removedAt };
+    }
+    // An existing session running since an earlier Undo really stopped at its removal time.
+    result = result.map((other) =>
+      other.end === null && typeof other.removedAt === "number" && other.start <= restored.start && other.removedAt <= restored.start
+        ? ended(other, Math.max(other.start, other.removedAt))
+        : other,
+    );
+    const later = result.filter((other) => other.start > restored.start).map((other) => other.start);
+    if (later.length && endOf(restored) > Math.min(...later)) restored = ended(restored, Math.min(...later));
+    const cover = result.filter((other) => other.start <= restored.start && endOf(other) > restored.start);
+    if (cover.length) {
+      const coveredUntil = Math.max(...cover.map(endOf));
+      if (coveredUntil >= endOf(restored)) continue;
+      restored = { ...restored, start: coveredUntil };
+    }
+    result.push(restored);
+  }
+  return result.sort((a, b) => b.start - a.start);
 }
 
 /** Local midnight of the day `now` falls on. */
