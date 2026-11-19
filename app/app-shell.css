@@ -201,7 +201,7 @@ html[data-toast] body { padding-bottom: var(--as-toast-space, 92px); }
 html { scroll-padding-top: 64px; scroll-padding-bottom: 16px; }
 
 /* Review 2026-11-18. Dark mode: the toast's fixed #1d1d1f was 1.25:1 on the #000 page with no shadow,
-   so it gets the raised surface tint and a visible edge (#f5f5f7 on #2c2c2e 13.6:1, #64d2ff 8.9:1). */
+   so it gets the raised surface tint and a visible edge (#f5f5f7 on #2c2c2e 12.8:1, #64d2ff 8.1:1; edge #636366 3.5:1 on #000). */
 @media (prefers-color-scheme: dark) { .as-toast { background: #2c2c2e; border: 1px solid #636366; } }
 /* List counts stay hidden until the clock runs, so Today never flashes 0 during hydration. */
 .as-lists[data-pending] .as-count { visibility: hidden; }
