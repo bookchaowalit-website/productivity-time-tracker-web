@@ -132,8 +132,8 @@ function ended(session: Session, end: number): Session {
 /**
  * Undo: puts the sessions removed at `removedAt` back exactly as they were (no trimming, dropping or
  * moved starts), merged by id, newest first. A session that was running when removed comes back
- * marked with this removal's `removedAt` (kept until it ends). Then one rule keeps time from being counted twice:
- * only the newest session may be running. Any other running session ends at the earliest of its
+ * marked with this removal's `removedAt` (kept until it ends). Then, if any running session came back by Undo, one
+ * rule keeps time from being counted twice: only the newest session may be running. Any other running session ends at the earliest of its
  * removal time, the start of the next session after it, and `now`. Finished sessions are never changed.
  * `latestSeq` (from latestStartSeq) is the start counter now: a running session whose seq is below it
  * was overtaken by a later start, so it comes back ended at its removal time.
@@ -150,7 +150,11 @@ export function restoreSessions(sessions: Session[], removed: Session[], removed
       // Stamp this removal's time, replacing an older mark from an earlier remove + Undo of the same session.
       return { ...session, removedAt };
     });
-  return oneRunning(newestFirst([...sessions, ...back]), now);
+  const merged = newestFirst([...sessions, ...back]);
+  // The overlap rule applies only to sessions Undo brought back running (this batch, or an earlier
+  // one still marked with removedAt). Restoring finished sessions never stops or trims a live timer.
+  const undoRunning = merged.some((session) => session.end === null && typeof session.removedAt === "number");
+  return undoRunning ? oneRunning(merged, now) : merged;
 }
 
 /**
@@ -218,8 +222,10 @@ export type EditResult = { ok: true; sessions: Session[] } | { ok: false; error:
 export function editSession(sessions: Session[], id: string, edit: SessionEdit, now: number): EditResult {
   const session = sessions.find((entry) => entry.id === id);
   if (!session) return { ok: false, error: "This session was removed in another tab." };
-  const end = session.end === null ? null : edit.end;
-  if (!Number.isFinite(edit.start) || (end !== null && !Number.isFinite(end))) return { ok: false, error: "Enter a full date and time." };
+  // A form opened while the session ran sends end null; if another tab stopped it since, keep that
+  // end instead of making it run again (only one session may run).
+  const end = session.end === null ? null : (edit.end ?? session.end);
+  if (!Number.isFinite(edit.start) || (end !== null && !Number.isFinite(end))) return { ok: false, error: "Enter a full date and time that exists on this clock." };
   if (edit.start > now || (end !== null && end > now)) return { ok: false, error: "Times cannot be in the future." };
   if (end !== null && end < edit.start) return { ok: false, error: "End must be after start." };
   const changed: Session = { ...session, label: edit.label.trim() || "Untitled", start: edit.start, end };
@@ -233,12 +239,17 @@ export function toLocalInput(timestamp: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Parses a datetime-local value as local time; NaN when empty or malformed. */
+/**
+ * Parses a datetime-local value as local time; NaN when empty, malformed, or not a real local time
+ * (a day like Feb 30, or a time skipped by a clock change, which Date would silently shift).
+ */
 export function fromLocalInput(value: string): number {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) return NaN;
   const [, y, mo, d, h, mi] = match.map(Number);
-  return new Date(y, mo - 1, d, h, mi).getTime();
+  const date = new Date(y, mo - 1, d, h, mi);
+  const real = date.getFullYear() === y && date.getMonth() === mo - 1 && date.getDate() === d && date.getHours() === h && date.getMinutes() === mi;
+  return real ? date.getTime() : NaN;
 }
 
 function csvCell(value: string): string {

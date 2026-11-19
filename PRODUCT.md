@@ -52,6 +52,10 @@ Open review findings (Codex, 2026-11-19), accepted for now and not yet fixed:
   `role="list"`, so VoiceOver on Safari may not announce them as lists.
 - Undo restores each removal batch with its own merge and sort of the whole history; with 20,000 sessions
   and 300 single removals in one Undo window that is about 0.7 s before storage writes and rendering.
+- This week starts at the local midnight of the day `now` falls on, moved back to Monday; in a zone whose
+  clock skips midnight (e.g. America/Santiago on 2026-09-06) the week can start at Monday 01:00.
+- Saving an edit that moves a session out of the current list (Today / This week) drops keyboard focus
+  to the page body instead of a nearby control.
 - The Undo focus, toast spacing and cross-tab behaviour are covered by happy-dom tests only; they have not
   been checked by hand in a real browser or with a screen reader.
 

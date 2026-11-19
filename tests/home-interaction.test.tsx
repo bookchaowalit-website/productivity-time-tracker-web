@@ -150,7 +150,7 @@ describe("review 2026-11-18", () => {
     mount([{ id: "r", label: "Running", start: NOW - 60_000, end: null }, earlier]);
     press(button("Today", $(".as-side")!));
     const clear = button("Clear finished");
-    expect(clear.getAttribute("aria-label")).toBe("Clear list: 1 session in Today, the running timer stays");
+    expect(clear.getAttribute("aria-label")).toBe("Clear finished: 1 session in Today, the running timer stays");
     press(clear);
     expect(stored()!.map((s) => s.id)).toEqual(["r"]);
     expect($(".as-timer .as-pill")!.textContent).toBe("Running");

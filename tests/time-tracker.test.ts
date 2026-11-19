@@ -330,7 +330,7 @@ describe("review 2026-11-18 helpers", () => {
 
   it("editSession validates and re-sorts", () => {
     expect(editSession([a], "x", { label: "", start: 0, end: 0 }, NOW2)).toEqual({ ok: false, error: "This session was removed in another tab." });
-    expect(editSession([a], "a", { label: "A", start: NaN, end: a.end }, NOW2)).toMatchObject({ ok: false, error: "Enter a full date and time." });
+    expect(editSession([a], "a", { label: "A", start: NaN, end: a.end }, NOW2)).toMatchObject({ ok: false, error: "Enter a full date and time that exists on this clock." });
     expect(editSession([a], "a", { label: "A", start: a.start, end: NOW2 + 1 }, NOW2)).toMatchObject({ ok: false, error: "Times cannot be in the future." });
     expect(editSession([a], "a", { label: "A", start: a.start, end: a.start - 1 }, NOW2)).toMatchObject({ ok: false, error: "End must be after start." });
     const moved = editSession([b, a], "a", { label: "  ", start: NOW2 - H / 4, end: NOW2 - H / 8 }, NOW2);
@@ -357,5 +357,36 @@ describe("review 2026-11-18 helpers", () => {
     const monday: Session = { id: "m", label: "M", start: new Date(2026, 10, 16, 8).getTime(), end: new Date(2026, 10, 16, 9).getTime() };
     const sunday: Session = { id: "s", label: "S", start: new Date(2026, 10, 15, 8).getTime(), end: new Date(2026, 10, 15, 9).getTime() };
     expect(listSessions([b, monday, sunday], "week", NOW2).map((s) => s.id)).toEqual(["b", "m"]);
+  });
+});
+
+describe("final Codex round (2026-11-19)", () => {
+  it("saving a form opened while running keeps the end another tab set (no second timer)", () => {
+    const stoppedA: Session = { id: "A", label: "A", start: 1_000, end: 5_000 };
+    const B: Session = { id: "B", label: "B", start: 5_000, end: null };
+    const result = editSession([B, stoppedA], "A", { label: "A2", start: 1_000, end: null }, 9_000);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.sessions.find((s) => s.id === "A")).toEqual({ ...stoppedA, label: "A2" });
+    expect(result.sessions.filter((s) => s.end === null)).toHaveLength(1);
+  });
+
+  it("Undo that brings back only finished sessions leaves the running timer alone", () => {
+    const old: Session = { id: "r", label: "R", start: 1_000, end: null }; // start edited earlier
+    const finished: Session = { id: "f", label: "F", start: 2_000, end: 3_000 };
+    expect(restoreSessions([old], [finished], 4_000, 9_000)).toEqual([finished, old]);
+  });
+
+  it("rejects a time that falls in a spring-forward gap", () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "America/Santiago";
+    try {
+      expect(fromLocalInput("2026-09-06T00:30")).toBeNaN();
+      expect(fromLocalInput("2026-09-06T01:30")).toBe(new Date(2026, 8, 6, 1, 30).getTime());
+      expect(fromLocalInput("2026-02-30T10:00")).toBeNaN();
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
   });
 });

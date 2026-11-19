@@ -287,6 +287,8 @@ export default function Home() {
   const listTotal = totalDuration(visible, now);
   const finished = visible.filter((session) => session.end !== null);
   const running = active !== null;
+  // The accessible name starts with the visible text, so voice control can say what it sees.
+  const clearText = running && finished.length < visible.length ? "Clear finished" : "Clear list";
 
   return (
     <div className="as">
@@ -348,7 +350,7 @@ export default function Home() {
                 <button type="button" className="as-plain" onClick={exportCsv}>Export CSV</button>
                 {/* Clear list leaves a running session alone: it stops only with Stop (or its own Remove). */}
                 {finished.length ? (
-                  <button type="button" className="as-plain as-danger" aria-label={`Clear list: ${plural(finished.length)} in ${title}${running ? ", the running timer stays" : ""}`} onClick={(event) => discard(finished, `Cleared ${plural(finished.length)}`, event.detail === 0)}>{running && finished.length < visible.length ? "Clear finished" : "Clear list"}</button>
+                  <button type="button" className="as-plain as-danger" aria-label={`${clearText}: ${plural(finished.length)} in ${title}${running ? ", the running timer stays" : ""}`} onClick={(event) => discard(finished, `Cleared ${plural(finished.length)}`, event.detail === 0)}>{clearText}</button>
                 ) : null}
               </div>
             </>
