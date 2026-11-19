@@ -110,7 +110,103 @@ describe("lists", () => {
     mount([yesterday]);
     press(button("Today", $(".as-side")!));
     expect(host.textContent).toContain("Nothing logged today");
-    expect([...host.querySelectorAll(".as-lists .as-count")].map((c) => c.textContent)).toEqual(["1", "0"]);
+    expect([...host.querySelectorAll(".as-lists .as-count")].map((c) => c.textContent)).toEqual(["1", "0", "1"]);
+  });
+
+  it("This week starts on Monday (18 Nov 2026 is a Wednesday) and has its own empty state", () => {
+    const lastWeek: Session = { id: "w", label: "Old sprint", start: NOW - 3 * 24 * HOUR, end: NOW - 3 * 24 * HOUR + HOUR };
+    mount([earlier, yesterday, lastWeek]);
+    press(button("This week", $(".as-side")!));
+    expect($("h1")!.textContent).toBe("This week");
+    expect(rows()).toEqual(["Email", "Write report"]);
+    act(() => root.unmount());
+    host.remove();
+    mount([lastWeek]);
+    press(button("This week", $(".as-side")!));
+    expect(host.textContent).toContain("Nothing logged this week");
+    expect($(".as-head p")!.textContent).toBe("Nothing logged this week");
+  });
+});
+
+describe("review 2026-11-18", () => {
+  it("the task field starts empty with an example placeholder and empties again after Start", () => {
+    mount([]);
+    expect(labelInput().value).toBe("");
+    expect(labelInput().placeholder).toBe("e.g. Deep work");
+    type(labelInput(), "Design review");
+    press(button("Start"));
+    press(button("Stop"));
+    expect(labelInput().value).toBe("");
+    expect(stored()![0].label).toBe("Design review");
+  });
+
+  it("the browser-only note sits right after the timer card", () => {
+    mount([earlier]);
+    expect($(".as-timer")!.nextElementSibling!.className).toContain("as-note");
+    expect($(".as-timer")!.nextElementSibling!.textContent).toContain("Saved in this browser only");
+  });
+
+  it("Clear in Today keeps the running session and says so", () => {
+    mount([{ id: "r", label: "Running", start: NOW - 60_000, end: null }, earlier]);
+    press(button("Today", $(".as-side")!));
+    const clear = button("Clear finished");
+    expect(clear.getAttribute("aria-label")).toBe("Clear list: 1 session in Today, the running timer stays");
+    press(clear);
+    expect(stored()!.map((s) => s.id)).toEqual(["r"]);
+    expect($(".as-timer .as-pill")!.textContent).toBe("Running");
+    expect(button("Clear")).toBeUndefined();
+  });
+
+  it("Edit renames a session and fixes a forgotten Stop; bad times show an inline error", () => {
+    mount([earlier, yesterday]);
+    press($('[aria-label^="Edit Email"]')!);
+    const form = $<HTMLFormElement>(".as-edit")!;
+    const [name, startField, endField] = [...form.querySelectorAll("input")] as HTMLInputElement[];
+    expect(document.activeElement).toBe(name);
+    expect(startField.type).toBe("datetime-local");
+    type(name, "Inbox zero");
+    type(endField, "2026-11-18T07:00");
+    act(() => { form.requestSubmit(); });
+    expect($(".as-edit-error")!.textContent).toBe("End must be after start.");
+    expect(endField.getAttribute("aria-invalid")).toBe("true");
+    expect(stored()![0].label).toBe("Email");
+    type(endField, "2026-11-18T08:15");
+    act(() => { $<HTMLFormElement>(".as-edit")!.requestSubmit(); });
+    expect($(".as-edit")).toBeNull();
+    expect(stored()![0]).toMatchObject({ id: "e", label: "Inbox zero", start: NOW - HOUR, end: NOW - 45 * 60_000 });
+    expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Edit Inbox zero/);
+  });
+
+  it("Edit on a running session shows no End field; Cancel and Escape close without saving", () => {
+    mount([{ id: "r", label: "Running", start: NOW - 60_000, end: null }]);
+    press($('[aria-label^="Edit Running"]')!);
+    expect($(".as-edit")!.querySelectorAll("input")).toHaveLength(2);
+    type($<HTMLInputElement>(".as-edit input")!, "Changed");
+    press(button("Cancel", $(".as-edit")!));
+    expect($(".as-edit")).toBeNull();
+    expect(stored()![0].label).toBe("Running");
+    press($('[aria-label^="Edit Running"]')!);
+    act(() => { $(".as-edit input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect($(".as-edit")).toBeNull();
+  });
+
+  it("Export CSV downloads the visible list", () => {
+    const create = vi.fn(() => "blob:csv");
+    const revoke = vi.fn();
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
+    const clicks: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { clicks.push(this.download); });
+    mount([earlier, yesterday]);
+    press(button("Export CSV"));
+    expect(create).toHaveBeenCalledOnce();
+    expect(clicks).toEqual(["time-tracker-all.csv"]);
+    expect(revoke).toHaveBeenCalledWith("blob:csv");
+    click.mockRestore();
+  });
+
+  it("list counts are hidden until the clock runs", () => {
+    mount([earlier]);
+    expect($(".as-lists")!.hasAttribute("data-pending")).toBe(false);
   });
 });
 

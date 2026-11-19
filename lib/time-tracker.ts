@@ -187,14 +187,83 @@ export function startOfDay(now: number): number {
   return day.getTime();
 }
 
-export type SessionList = "all" | "today";
+/** Local midnight of the Monday that starts the week `now` falls in. */
+export function startOfWeek(now: number): number {
+  const day = new Date(startOfDay(now));
+  day.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+  return day.getTime();
+}
 
-/** Sessions shown in a list. Today = started since local midnight, plus a running one. `now` 0 = no clock yet. */
+export type SessionList = "all" | "today" | "week";
+
+/**
+ * Sessions shown in a list. Today = started since local midnight, This week = since Monday's local
+ * midnight; both include a running one. `now` 0 = no clock yet.
+ */
 export function listSessions(sessions: Session[], list: SessionList, now: number): Session[] {
   if (list === "all") return sessions;
   if (!now) return [];
-  const midnight = startOfDay(now);
-  return sessions.filter((session) => session.start >= midnight || session.end === null);
+  const from = list === "today" ? startOfDay(now) : startOfWeek(now);
+  return sessions.filter((session) => session.start >= from || session.end === null);
+}
+
+export type SessionEdit = { label: string; start: number; end: number | null };
+export type EditResult = { ok: true; sessions: Session[] } | { ok: false; error: string };
+
+/**
+ * Changes a saved session's label, start and (for a finished one) end. A running session keeps
+ * running: its end stays null. Times must be real, not in the future, and end after start.
+ * The list is re-sorted newest first, since a new start can move the row.
+ */
+export function editSession(sessions: Session[], id: string, edit: SessionEdit, now: number): EditResult {
+  const session = sessions.find((entry) => entry.id === id);
+  if (!session) return { ok: false, error: "This session was removed in another tab." };
+  const end = session.end === null ? null : edit.end;
+  if (!Number.isFinite(edit.start) || (end !== null && !Number.isFinite(end))) return { ok: false, error: "Enter a full date and time." };
+  if (edit.start > now || (end !== null && end > now)) return { ok: false, error: "Times cannot be in the future." };
+  if (end !== null && end < edit.start) return { ok: false, error: "End must be after start." };
+  const changed: Session = { ...session, label: edit.label.trim() || "Untitled", start: edit.start, end };
+  return { ok: true, sessions: newestFirst(sessions.map((entry) => (entry.id === id ? changed : entry))) };
+}
+
+/** "YYYY-MM-DDTHH:mm" in local time, the value format of <input type="datetime-local">. */
+export function toLocalInput(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Parses a datetime-local value as local time; NaN when empty or malformed. */
+export function fromLocalInput(value: string): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return NaN;
+  const [, y, mo, d, h, mi] = match.map(Number);
+  return new Date(y, mo - 1, d, h, mi).getTime();
+}
+
+function csvCell(value: string): string {
+  const safe = /^[=+\-@\t]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/**
+ * The sessions as CSV, oldest first: task, ISO start and end (empty while running), duration as
+ * hh:mm:ss and in decimal hours. Cells that start like a formula are prefixed with ' so a
+ * spreadsheet shows them as text.
+ */
+export function sessionsCsv(sessions: Session[], now: number): string {
+  const lines = ["Task,Start,End,Duration,Hours"];
+  for (const session of [...sessions].reverse()) {
+    const duration = sessionDuration(session, now);
+    lines.push([
+      csvCell(session.label),
+      new Date(session.start).toISOString(),
+      session.end === null ? "" : new Date(session.end).toISOString(),
+      formatDuration(duration),
+      (duration / 3_600_000).toFixed(2),
+    ].join(","));
+  }
+  return `${lines.join("\r\n")}\r\n`;
 }
 
 function isSession(value: unknown): value is Session {

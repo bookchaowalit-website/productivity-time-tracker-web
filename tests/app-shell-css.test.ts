@@ -23,3 +23,12 @@ describe("Undo toast space", () => {
     expect(css).toMatch(/html\[data-toast\] body \{ padding-bottom: var\(--as-toast-space/);
   });
 });
+
+describe("review 2026-11-18", () => {
+  it("phone list pills wrap instead of hiding one past the right edge", () => {
+    expect(css).toMatch(/@media \(max-width: 760px\) \{ \.as-lists \{ flex-wrap: wrap; overflow-x: visible; \} \}/);
+  });
+  it("the dark toast is a raised surface with a visible edge", () => {
+    expect(css).toMatch(/prefers-color-scheme: dark\) \{ \.as-toast \{ background: #2c2c2e; border: 1px solid #636366; \} \}/);
+  });
+});

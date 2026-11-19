@@ -13,50 +13,121 @@ import {
   latestStartSeq,
   restoreSessions,
   sessionDuration,
+  editSession,
+  fromLocalInput,
+  sessionsCsv,
   sessionStore,
   startSession,
+  toLocalInput,
   takeStartSeq,
   stopSession,
   totalDuration,
   type Session,
+  type SessionEdit,
   type SessionList,
 } from "@/lib/time-tracker";
 
 const LISTS: { value: SessionList; label: string }[] = [
   { value: "all", label: "All sessions" },
   { value: "today", label: "Today" },
+  { value: "week", label: "This week" },
 ];
 
 const plural = (count: number) => `${count} ${count === 1 ? "session" : "sessions"}`;
 
-type RowProps = { session: Session; duration: string; zone: string; onRemove: (session: Session, viaKeyboard: boolean) => void };
+type RowProps = {
+  session: Session;
+  duration: string;
+  zone: string;
+  editing: boolean;
+  onRemove: (session: Session, viaKeyboard: boolean) => void;
+  onEdit: (session: Session) => void;
+  onSave: (id: string, edit: SessionEdit) => string | null;
+  onCancel: () => void;
+};
+
+/**
+ * Inline editor for one saved session. The times are datetime-local (minutes); a field left as it
+ * was keeps the saved timestamp, seconds included. A running session edits its name and start only.
+ */
+function EditForm({ session, onSave, onCancel }: { session: Session; onSave: RowProps["onSave"]; onCancel: () => void }) {
+  const initialStart = toLocalInput(session.start);
+  const initialEnd = session.end === null ? "" : toLocalInput(session.end);
+  const [label, setLabel] = useState(session.label);
+  const [start, setStart] = useState(initialStart);
+  const [end, setEnd] = useState(initialEnd);
+  const [error, setError] = useState<string | null>(null);
+  const firstRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { firstRef.current?.focus(); }, []);
+  const errorId = `edit-error-${session.id}`;
+  function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const edit: SessionEdit = {
+      label,
+      start: start === initialStart ? session.start : fromLocalInput(start),
+      end: session.end === null ? null : end === initialEnd ? session.end : fromLocalInput(end),
+    };
+    setError(onSave(session.id, edit));
+  }
+  return (
+    <form className="as-edit" onSubmit={save} aria-label={`Edit ${session.label}`} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }}>
+      <label className="as-field">Task
+        <input ref={firstRef} value={label} onChange={(event) => setLabel(event.target.value)} maxLength={80} autoComplete="off" />
+      </label>
+      <div className="as-edit-times">
+        <label className="as-field">Start
+          <input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} aria-describedby={error ? errorId : undefined} aria-invalid={error ? true : undefined} />
+        </label>
+        {session.end === null ? null : (
+          <label className="as-field">End
+            <input type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} aria-describedby={error ? errorId : undefined} aria-invalid={error ? true : undefined} />
+          </label>
+        )}
+      </div>
+      {error ? <p id={errorId} className="as-edit-error" role="alert">{error}</p> : null}
+      <div className="as-composer-actions">
+        <button type="submit" className="as-button">Save</button>
+        <button type="button" className="as-plain" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
 
 /**
  * One history row. The clock ticks twice a second, so finished rows (whose duration text never
- * changes) skip re-rendering unless the viewer's time zone changes. onRemove is left out of the comparison on purpose: the page's remove
- * handler reads only the store and refs, so an older copy behaves the same.
+ * changes) skip re-rendering unless the viewer's time zone or edit state changes. The handlers are left out of the comparison on purpose: the page's
+ * handlers read only the store and refs, so an older copy behaves the same.
  */
-const SessionRow = memo(function SessionRow({ session, duration, zone, onRemove }: RowProps) {
+const SessionRow = memo(function SessionRow({ session, duration, zone, editing, onRemove, onEdit, onSave, onCancel }: RowProps) {
   const live = session.end === null;
   const started = formatDate(session.start, zone);
+  if (editing) {
+    return <li className="as-row as-row-edit"><EditForm session={session} onSave={onSave} onCancel={onCancel} /></li>;
+  }
   return (
-    <li className="as-row">
+    <li className="as-row as-row-session">
       <div>
         <h3>{session.label}</h3>
         <p>{started}{live ? " · still running" : ` → ${formatDate(session.end!, zone)}`}</p>
       </div>
       <Pill tone={live ? "green" : "grey"}><span className="as-sr">{live ? "Running, " : "Duration "}</span>{duration}</Pill>
-      <button type="button" className="as-plain as-danger" aria-label={`Remove ${session.label}, ${started}`} onClick={(event) => onRemove(session, event.detail === 0)}>Remove</button>
+      <div className="as-row-actions">
+        <button type="button" className="as-plain" data-edit={session.id} aria-label={`Edit ${session.label}, ${started}`} onClick={() => onEdit(session)}>Edit</button>
+        <button type="button" className="as-plain as-danger" aria-label={`Remove ${session.label}, ${started}`} onClick={(event) => onRemove(session, event.detail === 0)}>Remove</button>
+      </div>
     </li>
   );
-}, (before, after) => before.session === after.session && before.duration === after.duration && before.zone === after.zone);
+}, (before, after) => before.session === after.session && before.duration === after.duration && before.zone === after.zone && before.editing === after.editing);
 
 export default function Home() {
   const sessions = useSyncExternalStore(sessionStore.subscribe, sessionStore.getSnapshot, sessionStore.getServerSnapshot);
   // 0 on the server and during hydration, so no visitor clock is baked into the HTML.
   const now = useSyncExternalStore(clockStore.subscribe, clockStore.getSnapshot, clockStore.getServerSnapshot);
   const [list, setList] = useState<SessionList>("all");
-  const [label, setLabel] = useState("Deep work");
+  const [label, setLabel] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // After Save or Cancel, focus returns to that row's Edit button.
+  const focusEditOf = useRef<string | null>(null);
   // Every removal still inside its Undo window, oldest first. Undo restores all of them.
   const [removed, setRemoved] = useState<{ batches: { sessions: Session[]; at: number }[]; message: string; viaKeyboard: boolean } | null>(null);
   const [toastFocused, setToastFocused] = useState(false);
@@ -71,6 +142,8 @@ export default function Home() {
   // The committed Undo state, for handlers that may come from an older render (memoized rows).
   const removedRef = useRef(removed);
   useEffect(() => { removedRef.current = removed; }, [removed]);
+  const editingIdRef = useRef(editingId);
+  useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
 
   const active = activeSession(sessions);
   const visible = listSessions(sessions, list, now);
@@ -122,7 +195,48 @@ export default function Home() {
     sessionStore.update((current) => (activeSession(current) ? current : startSession(current, label, id, Date.now(), takeStartSeq(current))));
     // The store re-reads storage, so another tab may already be timing: only claim a start that happened.
     const running = activeSession(sessionStore.getSnapshot());
+    if (running?.id === id) setLabel("");
     setAnnouncement(running?.id === id ? `Started “${name}”.` : `Not started: “${running?.label ?? name}” is already running.`);
+  }
+  useEffect(() => {
+    if (editingId !== null || !focusEditOf.current) return;
+    const id = focusEditOf.current;
+    focusEditOf.current = null;
+    document.querySelector<HTMLButtonElement>(`[data-edit="${CSS.escape(id)}"]`)?.focus();
+  }, [editingId]);
+  function openEdit(session: Session) {
+    setEditingId(session.id);
+  }
+  function closeEdit() {
+    focusEditOf.current = editingIdRef.current;
+    setEditingId(null);
+  }
+  function saveEdit(id: string, edit: SessionEdit): string | null {
+    let error: string | null = null;
+    sessionStore.update((current) => {
+      const result = editSession(current, id, edit, Date.now());
+      if (!result.ok) {
+        error = result.error;
+        return current;
+      }
+      return result.sessions;
+    });
+    if (error) return error;
+    const saved = sessionStore.getSnapshot().find((session) => session.id === id);
+    setAnnouncement(`Saved “${saved?.label ?? edit.label}”.`);
+    closeEdit();
+    return null;
+  }
+  function exportCsv() {
+    const url = URL.createObjectURL(new Blob([sessionsCsv(visible, now)], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `time-tracker-${list}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setAnnouncement(`Exported ${plural(visible.length)} as CSV.`);
   }
   function stop() {
     if (!active) return;
@@ -171,6 +285,7 @@ export default function Home() {
   }
 
   const listTotal = totalDuration(visible, now);
+  const finished = visible.filter((session) => session.end !== null);
   const running = active !== null;
 
   return (
@@ -181,7 +296,8 @@ export default function Home() {
       <div className="as-body">
         <aside className="as-side" aria-label="Lists">
           <h2>Lists</h2>
-          <ul className="as-lists">
+          {/* Counts wait for the clock (now 0 on the server and during hydration), so Today never shows 0 first. */}
+          <ul className="as-lists" data-pending={now ? undefined : "true"}>
             {LISTS.map(({ value, label: name }) => (
               <ListButton key={value} label={name} count={listSessions(sessions, value, now).length} current={list === value} onSelect={() => setList(value)} />
             ))}
@@ -192,7 +308,7 @@ export default function Home() {
           <div className="as-head">
             <div>
               <h1>{title}</h1>
-              <p>{visible.length ? `${formatDuration(listTotal)} logged · ${plural(visible.length)}` : list === "today" ? "Nothing logged today" : "Nothing logged yet"}</p>
+              <p>{visible.length ? `${formatDuration(listTotal)} logged · ${plural(visible.length)}` : list === "today" ? "Nothing logged today" : list === "week" ? "Nothing logged this week" : "Nothing logged yet"}</p>
             </div>
           </div>
 
@@ -219,16 +335,21 @@ export default function Home() {
               )}
             </div>
           </form>
+          <p className="as-note as-note-top">Saved in this browser only: no account and no sync, so another device or browser starts empty.</p>
 
           {visible.length ? (
             <>
               <ul className="as-list" aria-label={`${title}, newest first`}>
                 {visible.map((session) => (
-                  <SessionRow key={session.id} session={session} duration={formatDuration(sessionDuration(session, now))} zone={zone} onRemove={removeOne} />
+                  <SessionRow key={session.id} session={session} duration={formatDuration(sessionDuration(session, now))} zone={zone} editing={editingId === session.id} onRemove={removeOne} onEdit={openEdit} onSave={saveEdit} onCancel={closeEdit} />
                 ))}
               </ul>
               <div className="as-actions-row">
-                <button type="button" className="as-plain as-danger" aria-label={`Clear list: ${plural(visible.length)} in ${title}`} onClick={(event) => discard(visible, `Cleared ${plural(visible.length)}`, event.detail === 0)}>Clear list</button>
+                <button type="button" className="as-plain" onClick={exportCsv}>Export CSV</button>
+                {/* Clear list leaves a running session alone: it stops only with Stop (or its own Remove). */}
+                {finished.length ? (
+                  <button type="button" className="as-plain as-danger" aria-label={`Clear list: ${plural(finished.length)} in ${title}${running ? ", the running timer stays" : ""}`} onClick={(event) => discard(finished, `Cleared ${plural(finished.length)}`, event.detail === 0)}>{running && finished.length < visible.length ? "Clear finished" : "Clear list"}</button>
+                ) : null}
               </div>
             </>
           ) : (
@@ -236,12 +357,11 @@ export default function Home() {
               {sessions.length === 0 ? (
                 <><strong>No sessions yet</strong>Name what you are working on and press Start.</>
               ) : (
-                <><strong>Nothing logged today</strong>Sessions you start today appear here. Older ones are in All sessions.</>
+                <><strong>{list === "today" ? "Nothing logged today" : "Nothing logged this week"}</strong>{list === "today" ? "Sessions you start today appear here." : "Sessions you start from Monday appear here."} Older ones are in All sessions.</>
               )}
             </div>
           )}
 
-          <p className="as-note">Sessions are saved in this browser only. There is no account and no sync, so another device or browser starts empty.</p>
         </main>
       </div>
 

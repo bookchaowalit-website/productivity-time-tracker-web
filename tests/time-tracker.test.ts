@@ -11,6 +11,11 @@ import {
   restoreSessions,
   oneRunning,
   startOfDay,
+  startOfWeek,
+  editSession,
+  toLocalInput,
+  fromLocalInput,
+  sessionsCsv,
   sessionDuration,
   startSession,
   takeStartSeq,
@@ -307,5 +312,50 @@ describe("currentTimeZone", () => {
     const zone = currentTimeZone();
     expect(zone).toBe(new Intl.DateTimeFormat().resolvedOptions().timeZone);
     expect(formatDate(Date.UTC(2026, 0, 1), zone)).toBe(formatDate(Date.UTC(2026, 0, 1)));
+  });
+});
+
+describe("review 2026-11-18 helpers", () => {
+  const NOW2 = new Date(2026, 10, 18, 9, 0).getTime();
+  const H = 3_600_000;
+  const a: Session = { id: "a", label: "A", start: NOW2 - 2 * H, end: NOW2 - H };
+  const b: Session = { id: "b", label: "B", start: NOW2 - H / 2, end: null };
+
+  it("startOfWeek is Monday's local midnight", () => {
+    expect(new Date(startOfWeek(NOW2)).getDay()).toBe(1);
+    expect(new Date(startOfWeek(NOW2)).getDate()).toBe(16);
+    const sunday = new Date(2026, 10, 22, 23, 0).getTime();
+    expect(new Date(startOfWeek(sunday)).getDate()).toBe(16);
+  });
+
+  it("editSession validates and re-sorts", () => {
+    expect(editSession([a], "x", { label: "", start: 0, end: 0 }, NOW2)).toEqual({ ok: false, error: "This session was removed in another tab." });
+    expect(editSession([a], "a", { label: "A", start: NaN, end: a.end }, NOW2)).toMatchObject({ ok: false, error: "Enter a full date and time." });
+    expect(editSession([a], "a", { label: "A", start: a.start, end: NOW2 + 1 }, NOW2)).toMatchObject({ ok: false, error: "Times cannot be in the future." });
+    expect(editSession([a], "a", { label: "A", start: a.start, end: a.start - 1 }, NOW2)).toMatchObject({ ok: false, error: "End must be after start." });
+    const moved = editSession([b, a], "a", { label: "  ", start: NOW2 - H / 4, end: NOW2 - H / 8 }, NOW2);
+    expect(moved.ok && moved.sessions.map((s) => [s.id, s.label])).toEqual([["a", "Untitled"], ["b", "B"]]);
+    const running = editSession([b], "b", { label: "B2", start: NOW2 - H, end: NOW2 - 1 }, NOW2);
+    expect(running.ok && running.sessions[0]).toMatchObject({ label: "B2", start: NOW2 - H, end: null });
+  });
+
+  it("datetime-local values round-trip in local time", () => {
+    expect(toLocalInput(NOW2)).toBe("2026-11-18T09:00");
+    expect(fromLocalInput("2026-11-18T09:00")).toBe(NOW2);
+    expect(fromLocalInput("")).toBeNaN();
+  });
+
+  it("sessionsCsv lists oldest first and neutralises formula cells", () => {
+    const csv = sessionsCsv([b, { ...a, label: '=SUM(1,2) "x"' }], NOW2);
+    const lines = csv.trimEnd().split("\r\n");
+    expect(lines[0]).toBe("Task,Start,End,Duration,Hours");
+    expect(lines[1]).toBe(`"'=SUM(1,2) ""x""",${new Date(a.start).toISOString()},${new Date(a.end!).toISOString()},01:00:00,1.00`);
+    expect(lines[2]).toBe(`B,${new Date(b.start).toISOString()},,00:30:00,0.50`);
+  });
+
+  it("This week includes earlier days of the week and a running session", () => {
+    const monday: Session = { id: "m", label: "M", start: new Date(2026, 10, 16, 8).getTime(), end: new Date(2026, 10, 16, 9).getTime() };
+    const sunday: Session = { id: "s", label: "S", start: new Date(2026, 10, 15, 8).getTime(), end: new Date(2026, 10, 15, 9).getTime() };
+    expect(listSessions([b, monday, sunday], "week", NOW2).map((s) => s.id)).toEqual(["b", "m"]);
   });
 });

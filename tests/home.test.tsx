@@ -13,7 +13,10 @@ describe("home page (server render)", () => {
     expect(html).toContain(">Ready<");
     expect(html).toContain(">Start<");
     expect(html).toContain("No sessions yet");
-    expect(html).toContain("Sessions are saved in this browser only.");
+    expect(html).toContain("Saved in this browser only");
+    expect(html).toContain('placeholder="e.g. Deep work" value=""');
+    // No clock on the server: the list counts are hidden until it runs.
+    expect(html).toContain('data-pending="true"');
     expect(html).toContain('href="https://bookchaowalit.com/"');
   });
 });

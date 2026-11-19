@@ -199,3 +199,24 @@ html[data-toast] body { padding-bottom: var(--as-toast-space, 92px); }
 
 /* The top bar is sticky: keep skip-link targets and keyboard-focused controls clear of it when the page scrolls to them. */
 html { scroll-padding-top: 64px; scroll-padding-bottom: 16px; }
+
+/* Review 2026-11-18. Dark mode: the toast's fixed #1d1d1f was 1.25:1 on the #000 page with no shadow,
+   so it gets the raised surface tint and a visible edge (#f5f5f7 on #2c2c2e 13.6:1, #64d2ff 8.9:1). */
+@media (prefers-color-scheme: dark) { .as-toast { background: #2c2c2e; border: 1px solid #636366; } }
+/* List counts stay hidden until the clock runs, so Today never flashes 0 during hydration. */
+.as-lists[data-pending] .as-count { visibility: hidden; }
+/* The browser-only note sits right under the timer card, in the first screen on phones. */
+.as-note-top { margin: -4px 0 16px; }
+/* Rows: Edit and Remove side by side; the inline editor takes the whole row. */
+.as-row-actions { display: flex; gap: 2px; }
+.as-row-edit { display: block; padding: 16px; }
+.as-edit { display: grid; gap: 12px; }
+.as-edit-times { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.as-edit-times input { min-width: 0; }
+.as-edit-error { margin: 0; color: var(--as-danger); font-size: 14px; font-weight: 600; }
+.as-actions-row { gap: 4px; }
+@media (max-width: 760px) {
+  .as-row-session .as-row-actions { grid-column: 2; grid-row: 1 / span 2; flex-direction: column; }
+}
+/* Three short lists: on phones they wrap onto a second line instead of hiding one off the edge. */
+@media (max-width: 760px) { .as-lists { flex-wrap: wrap; overflow-x: visible; } }

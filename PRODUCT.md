@@ -15,13 +15,13 @@ A portfolio visitor who wants a small honest stopwatch for the task in front of 
 
 1. Label a session, Start, Stop. Only one session runs at a time; a running session keeps running across reloads.
 2. The ledger lists each session with start/end time and duration; the total adds them up, including the running one.
-3. Switch between All sessions and Today (started since local midnight, plus a running one). Remove one session or clear the list on screen; both can be undone for six seconds. A saved value of the wrong shape is ignored; bad entries (or an end before the start) are dropped.
+3. Switch between All sessions, Today (started since local midnight) and This week (since Monday's local midnight); both include a running one. Remove one session or clear the list on screen (Clear leaves a running session alone); both can be undone for six seconds. Edit fixes a saved session's name, start and end (a running one: name and start); times must not be in the future and the end must follow the start. Export CSV downloads the list on screen (task, ISO start/end, duration, decimal hours). A saved value of the wrong shape is ignored; bad entries (or an end before the start) are dropped.
 4. `/api/mcp` answers JSON-RPC `initialize` and `tools/list` with an empty tool list: sessions stay in the visitor's browser, so any `tools/call` is refused with an error.
 5. Front-end and server errors go to Sentry (errors only, personal data stripped) when `NEXT_PUBLIC_SENTRY_DSN` is set.
 
 ## What does not work (and must not be claimed)
 
-- No tags, manual entry, weekly or monthly reports, billable rates, CSV export or invoice integration (removed from the portfolio card in the 2026-10 review).
+- No tags, manual entry, monthly reports, per-task totals, billable rates or invoice integration (removed from the portfolio card in the 2026-10 review). CSV export and editing a session were added on 2026-11-19.
 - No account or sync: the register lives in one browser on one device.
 
 ## Look
