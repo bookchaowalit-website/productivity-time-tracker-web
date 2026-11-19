@@ -62,3 +62,6 @@ Open review findings (Codex, 2026-11-19), accepted for now and not yet fixed:
 ## Boundaries
 
 - Browser-only apart from the stateless `/api/mcp` route.
+- Undo of a running session whose start time was edited in another tab may stop it (multi-tab edge case).
+- Saving an edit writes all fields of the form, so a field another tab changed meanwhile is overwritten.
+- Editing a time inside a repeated (DST fall-back) hour uses the first occurrence; the UTC offset may shift by one hour.
